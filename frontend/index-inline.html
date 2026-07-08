@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CampusPulse — Smart Campus & Exam Issue Tracker</title>
+  <meta name="description" content="Report, track, and resolve campus and exam issues. Built for Indian college students." />
+
+  <!-- Tailwind (local vendor copy of play CDN, themed via tailwind.config below) -->
+  <script src="vendor/tailwind.js"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            // Dark navy surface system
+            navy: {
+              950: '#0b1222',  // page background
+              900: '#131c31',  // primary surface  (brand color from brief)
+              850: '#172139',
+              800: '#1d2a47',  // card / elevated surface
+              700: '#273352',  // borders, hover
+              600: '#344066',
+            },
+            // Mint green accent (brand color from brief)
+            mint:  { DEFAULT: '#3ddc97', dark: '#2bbd80', soft: '#3ddc9722' },
+            amber: { DEFAULT: '#f5b544', soft: '#f5b54422' },
+            danger:{ DEFAULT: '#f06a6a', soft: '#f06a6a22' },
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'],
+          },
+          boxShadow: {
+            card: '0 1px 2px rgba(0,0,0,.3), 0 8px 24px -12px rgba(0,0,0,.5)',
+            glow: '0 0 0 1px rgba(61,220,151,.35), 0 8px 30px -8px rgba(61,220,151,.25)',
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Inter font (system fallback if CDN unavailable) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" onerror="this.remove()" />
+
+  <link rel="stylesheet" href="css/app.css" />
+</head>
+<body class="bg-navy-950 text-slate-200 font-sans antialiased min-h-screen">
+  <div id="root"></div>
+
+  <!-- React + Babel standalone (local vendor copies — no CDN needed) -->
+  <script src="vendor/react.production.min.js"></script>
+  <script src="vendor/react-dom.production.min.js"></script>
+  <script src="vendor/babel.min.js"></script>
+
+  <!-- App scripts (order matters: deps -> icons -> api -> components -> app) -->
+  <!-- App scripts (inlined for reliability) -->
+  <script type="text/babel">
+/* === icons.js === */
+/* CampusPulse — minimal stroke icon set (no emoji, no icon-font dependency).
+   Each icon is a function component returning an inline SVG so it inherits
+   `currentColor` and sizes via className. */
+
+const { createElement: h } = React;
+
+// Base wrapper keeps stroke style consistent across every icon.
+function svg(paths, { className = 'w-5 h-5', ...rest } = {}) {
+  return h('svg', {
+    xmlns: 'http://www.w3.org/2000/svg',
+    viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor',
+    strokeWidth: 1.8, strokeLinecap: 'round', strokeLinejoin: 'round',
+    className, ...rest,
+  }, paths);
+}
+const P = (d, key) => h('path', { d, key });
+
+const Icon = {
+  Logo: (p) => svg([
+    P('M3 12h3l2-6 4 12 2-6 2 3h5', 'a'),
+  ], { className: 'w-6 h-6', ...p }),
+
+  // ---- nav / UI ----
+  Dashboard: (p) => svg([P('M4 13h6V4H4v9zm10 7h6v-9h-6v9zM4 20h6v-3H4v3zM14 4v3h6V4h-6z', 'a')], p),
+  Plus:      (p) => svg([P('M12 5v14M5 12h14', 'a')], p),
+  Logout:    (p) => svg([P('M15 12H4m11 0-3-3m3 3-3 3M9 4h7a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H9', 'a')], p),
+  Filter:    (p) => svg([P('M4 5h16M7 12h10M10 19h4', 'a')], p),
+  Search:    (p) => svg([P('M21 21l-4.3-4.3M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16z', 'a')], p),
+  Clock:     (p) => svg([P('M12 8v4l3 2M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18z', 'a')], p),
+  Check:     (p) => svg([P('M20 6L9 17l-5-5', 'a')], p),
+  Alert:     (p) => svg([P('M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z', 'a')], p),
+  Pin:       (p) => svg([P('M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11zM12 12a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5z', 'a')], p),
+  Inbox:     (p) => svg([P('M22 12h-6l-2 3h-4l-2-3H2M5.5 5h13l3.5 7v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6l3.5-7z', 'a')], p),
+  User:      (p) => svg([P('M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z', 'a')], p),
+  Lock:      (p) => svg([P('M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4', 'a')], p),
+  Sparkle:   (p) => svg([P('M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3zM19 15l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z', 'a')], p),
+
+  // ---- category icons ----
+  Electrical: (p) => svg([P('M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5z', 'a')], p),       // bolt
+  Plumbing:   (p) => svg([P('M12 2v6M9 8h6v4a3 3 0 0 1-3 3 3 3 0 0 1-3-3V8zM12 15v4M9 22h6M10 19h4', 'a')], p), // wrench-ish tap
+  Furniture:  (p) => svg([P('M4 7v10M20 7v10M4 9h16M4 15h16M6 17v3M18 17v3', 'a')], p),      // chair/table
+  IT:         (p) => svg([P('M5 13a8 8 0 0 1 16 0M8.5 16a4.5 4.5 0 0 1 7 0M2 9a14 14 0 0 1 20 0M12 20h.01', 'a')], p), // wifi
+  Safety:     (p) => svg([P('M12 2 4 5v6c0 5 3.5 8 8 11 4.5-3 8-6 8-11V5l-8-3zM12 8v4M12 16h.01', 'a')], p), // shield
+  Cleanliness:(p) => svg([P('M3 21h18M5 21V10l7-5 7 5v11M9 21v-5h6v5M9 11h.01M15 11h.01', 'a')], p), // spray / broom
+  Hall:       (p) => svg([P('M4 4h16v12H4zM4 16l-2 4M20 16l2 4M9 9h6M9 12h6', 'a')], p),     // ticket / doc
+  Seat:       (p) => svg([P('M6 4v16M18 4v16M6 8h12M6 14h12M4 10v2M20 10v2', 'a')], p),      // grid seat
+  Timetable:  (p) => svg([P('M8 2v4M16 2v4M3 10h18M5 4h14a2 2 0 0 1 2 2v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8 14h.01M12 14h.01M16 14h.01M8 18h.01', 'a')], p), // calendar
+  Result:     (p) => svg([P('M9 11l3 3 6-6M4 12v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6M3 8h18', 'a')], p), // check in box
+  Invigilation:(p)=> svg([P('M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM6 21v-1a6 6 0 0 1 12 0v1M3 3l18 18', 'a')], p), // person + slash
+  Other:      (p) => svg([P('M12 8h.01M12 12v4M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0z', 'a')], p), // info circle
+
+  // track icons
+  CampusTrack:(p) => svg([P('M3 21h18M5 21V8l7-4 7 4v13M9 21v-5h6v5M9 11h.01M15 11h.01', 'a')], p),
+  ExamTrack:  (p) => svg([P('M14 3v5h5M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-5zM9 13h6M9 17h6', 'a')], p),
+};
+
+// Map a category name -> icon, used by tables/cards.
+const CATEGORY_ICON = {
+  Electrical: Icon.Electrical, Plumbing: Icon.Plumbing, Furniture: Icon.Furniture,
+  'IT/Wi-Fi': Icon.IT, 'Safety/Security': Icon.Safety, Cleanliness: Icon.Cleanliness,
+  'Hall Ticket Error': Icon.Hall, 'Seating Allocation Issue': Icon.Seat,
+  'Timetable Clash': Icon.Timetable, 'Result Discrepancy': Icon.Result,
+  'Invigilation Complaint': Icon.Invigilation, Other: Icon.Other,
+};
+
+function CategoryIcon({ category, className }) {
+  const Cmp = CATEGORY_ICON[category] || Icon.Other;
+  return h(Cmp, { className });
+}
+
+// Expose globally (no module bundler in this prototype).
+window.Icon = Icon;
+window.CATEGORY_ICON = CATEGORY_ICON;
+window.CategoryIcon = CategoryIcon;
+
+
+/* === api.js === */
+/* CampusPulse API client.
+   A tiny fetch wrapper. The "session" is the public user object kept in
+   localStorage (no real auth per the project brief). Every request echoes
+   the user id back via the x-user-id header so the demo backend knows which
+   data to return. */
+
+const SESSION_KEY = 'campuspulse.session';
+
+const Session = {
+  get() {
+    try { return JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); }
+    catch { return null; }
+  },
+  set(user) { localStorage.setItem(SESSION_KEY, JSON.stringify(user)); },
+  clear() { localStorage.removeItem(SESSION_KEY); },
+};
+
+function userId() {
+  const u = Session.get();
+  return u ? u.id : '';
+}
+
+async function request(path, { method = 'GET', body, query } = {}) {
+  const url = new URL(path, window.location.origin);
+  if (query) {
+    Object.entries(query).forEach(([k, v]) => {
+      if (v !== '' && v != null) url.searchParams.set(k, v);
+    });
+  }
+  const res = await fetch(url.toString(), {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'x-user-id': userId(), // demo only — NOT security
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  let data = null;
+  try { data = await res.json(); } catch { /* non-JSON (e.g. 204) */ }
+  if (!res.ok) {
+    const msg = (data && data.error) || `Request failed (${res.status})`;
+    const err = new Error(msg);
+    err.status = res.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+const Api = {
+  Session,
+
+  login(username, password) {
+    return request('/api/login', { method: 'POST', body: { username, password } });
+  },
+  logout() {
+    Session.clear();
+  },
+  me() { return Session.get(); },
+
+  // issues
+  listIssues(filters = {}) {
+    return request('/api/issues', { query: filters }).then((d) => d.issues);
+  },
+  createIssue(payload) {
+    return request('/api/issues', { method: 'POST', body: payload }).then((d) => d.issue);
+  },
+  updateStatus(issueId, status) {
+    return request(`/api/issues/${issueId}/status`, { method: 'PATCH', body: { status } })
+      .then((d) => d.issue);
+  },
+
+  stats() { return request('/api/stats'); },
+  meta()  { return request('/api/meta'); },
+};
+
+window.Api = Api;
+
+
+/* === components.js === */
+/* CampusPulse — shared presentational components (login, badges, cards,
+   form controls, empty state, toast). Dashboard-specific components live in
+   dashboard.js. */
+
+const { createElement: h, useState, useEffect, useRef } = React;
+
+/* ------------------------------------------------------------------ utils */
+
+const STATUS_STYLE = {
+  Reported:    { wrap: 'bg-danger-soft text-danger ring-1 ring-danger/30', dot: 'bg-danger' },
+  'In Progress': { wrap: 'bg-amber-soft text-amber ring-1 ring-amber/30', dot: 'bg-amber' },
+  Resolved:    { wrap: 'bg-mint-soft text-mint ring-1 ring-mint/30',      dot: 'bg-mint'  },
+};
+const PRIORITY_STYLE = {
+  High:   'bg-danger-soft text-danger ring-1 ring-danger/30',
+  Medium: 'bg-sky-500/10 text-sky-400 ring-1 ring-sky-500/30',
+};
+
+function timeAgo(iso) {
+  const then = new Date(iso).getTime();
+  const diff = Date.now() - then;
+  const s = Math.round(diff / 1000);
+  if (s < 60) return 'just now';
+  const m = Math.round(s / 60);     if (m < 60) return `${m}m ago`;
+  const hr = Math.round(m / 60);    if (hr < 24) return `${hr}h ago`;
+  const d = Math.round(hr / 24);    if (d < 30) return `${d}d ago`;
+  const mo = Math.round(d / 30);    if (mo < 12) return `${mo}mo ago`;
+  return `${Math.round(mo / 12)}y ago`;
+}
+
+function trackMeta(track) {
+  return track === 'Exam'
+    ? { label: 'Exam', Icon: Icon.ExamTrack, cls: 'text-amber' }
+    : { label: 'Campus', Icon: Icon.CampusTrack, cls: 'text-mint' };
+}
+
+/* ----------------------------------------------------------------- badges */
+
+function StatusBadge({ status }) {
+  const s = STATUS_STYLE[status] || STATUS_STYLE['Reported'];
+  return (
+    h('span', { className: `inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${s.wrap}` },
+      h('span', { className: `h-1.5 w-1.5 rounded-full ${s.dot}` }),
+      status,
+    )
+  );
+}
+
+function PriorityBadge({ priority }) {
+  const cls = PRIORITY_STYLE[priority] || PRIORITY_STYLE['Medium'];
+  return (
+    h('span', { className: `inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${cls}` },
+      priority === 'High' && h(Icon.Alert, { className: 'w-3 h-3' }),
+      priority,
+    )
+  );
+}
+
+function TrackTag({ track }) {
+  const { label, Icon: TIcon, cls } = trackMeta(track);
+  return (
+    h('span', { className: `inline-flex items-center gap-1.5 text-xs font-medium ${cls}` },
+      h(TIcon, { className: 'w-3.5 h-3.5' }), label,
+    )
+  );
+}
+
+/* ----------------------------------------------------------- form controls */
+
+function Field({ label, htmlFor, hint, error, children }) {
+  return (
+    h('div', null,
+      h('label', { htmlFor, className: 'mb-1.5 flex items-center justify-between text-sm font-medium text-slate-300' },
+        h('span', null, label),
+        hint && h('span', { className: 'text-xs font-normal text-slate-500' }, hint),
+      ),
+      children,
+      error && h('p', { className: 'mt-1.5 text-xs text-danger' }, error),
+    )
+  );
+}
+
+const inputCls = 'w-full rounded-xl bg-navy-950/60 border border-navy-700 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 transition focus:border-mint focus:ring-2 focus:ring-mint/30 focus:outline-none';
+
+function TextInput(props) {
+  return h('input', { ...props, className: `${inputCls} ${props.className || ''}` });
+}
+function TextArea(props) {
+  return h('textarea', { ...props, className: `${inputCls} resize-y min-h-[90px] ${props.className || ''}` });
+}
+function Select({ children, ...props }) {
+  return h('select', { ...props, className: `${inputCls} appearance-none bg-no-repeat pr-9 ${props.className || ''}`,
+    style: { backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundPosition: 'right 0.75rem center' } },
+    children);
+}
+
+function Button({ variant = 'primary', size = 'md', loading = false, disabled, children, className = '', ...rest }) {
+  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2.5 text-sm', lg: 'px-5 py-3 text-sm' };
+  const variants = {
+    primary: 'bg-mint text-navy-950 font-semibold hover:bg-mint-dark shadow-glow disabled:opacity-60',
+    ghost:   'bg-navy-800/60 text-slate-200 border border-navy-700 hover:bg-navy-700/60 hover:border-navy-600',
+    subtle:  'bg-transparent text-slate-300 hover:bg-navy-800/60',
+    danger:  'bg-danger/15 text-danger border border-danger/30 hover:bg-danger/25',
+  };
+  return (
+    h('button', {
+      ...rest, disabled: disabled || loading,
+      className: `inline-flex items-center justify-center gap-2 rounded-xl transition active:scale-[.98] disabled:cursor-not-allowed ${sizes[size]} ${variants[variant]} ${className}`,
+    },
+      loading && h('span', { className: 'cp-spinner', 'aria-hidden': 'true' }),
+      children,
+    )
+  );
+}
+
+/* ----------------------------------------------------------- empty + toast */
+
+function EmptyState({ icon: IconCmp = Icon.Inbox, title, subtitle, action }) {
+  return (
+    h('div', { className: 'flex flex-col items-center justify-center rounded-2xl border border-dashed border-navy-700 bg-navy-900/30 px-6 py-14 text-center' },
+      h('div', { className: 'mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-navy-800 text-slate-500' },
+        h(IconCmp, { className: 'w-7 h-7' }),
+      ),
+      h('h3', { className: 'text-base font-semibold text-slate-200' }, title),
+      subtitle && h('p', { className: 'mt-1 max-w-sm text-sm text-slate-500' }, subtitle),
+      action && h('div', { className: 'mt-5' }, action),
+    )
+  );
+}
+
+function Toast({ toast }) {
+  if (!toast) return null;
+  const tone = toast.type === 'error' ? 'border-danger/40 text-danger' : 'border-mint/40 text-mint';
+  return (
+    h('div', { className: 'fixed bottom-5 left-1/2 z-50 -translate-x-1/2 px-4' },
+      h('div', { className: `animate-row-in flex items-center gap-2.5 rounded-xl border bg-navy-850 px-4 py-3 text-sm font-medium shadow-card ${tone}` },
+        toast.type === 'error' ? h(Icon.Alert, { className: 'w-4 h-4' }) : h(Icon.Check, { className: 'w-4 h-4' }),
+        h('span', { className: 'text-slate-100' }, toast.message),
+      ),
+    )
+  );
+}
+
+/* ----------------------------------------------------------- top app bar */
+
+function TopBar({ user, onLogout, tab, setTab, refresh, refreshing }) {
+  return (
+    h('header', { className: 'sticky top-0 z-30 border-b border-navy-800/80 bg-navy-950/80 backdrop-blur-xl' },
+      h('div', { className: 'mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6' },
+        h('a', { href: '/', className: 'flex items-center gap-2.5 focus-ring rounded-lg' },
+          h('span', { className: 'flex h-9 w-9 items-center justify-center rounded-xl bg-mint text-navy-950 shadow-glow' },
+            h(Icon.Logo, { className: 'w-5 h-5' })),
+          h('span', { className: 'text-lg font-bold tracking-tight text-white' },
+            'Campus', h('span', { className: 'text-mint' }, 'Pulse')),
+        ),
+
+        // tabs (only relevant for admin — student has single view handled elsewhere)
+        tab && h('nav', { className: 'ml-4 hidden items-center gap-1 sm:flex' },
+          h('button', {
+            onClick: () => setTab('board'), 'data-tab': 'board',
+            className: `rounded-lg px-3 py-1.5 text-sm font-medium transition focus-ring ${tab === 'board' ? 'bg-navy-800 text-white' : 'text-slate-400 hover:text-slate-200'}`,
+          }, h('span', { className: 'inline-flex items-center gap-1.5' }, h(Icon.Dashboard, { className: 'w-4 h-4' }), 'Issue Board')),
+          h('button', {
+            onClick: () => setTab('stats'), 'data-tab': 'stats',
+            className: `rounded-lg px-3 py-1.5 text-sm font-medium transition focus-ring ${tab === 'stats' ? 'bg-navy-800 text-white' : 'text-slate-400 hover:text-slate-200'}`,
+          }, h('span', { className: 'inline-flex items-center gap-1.5' }, h(Icon.Sparkle, { className: 'w-4 h-4' }), 'Stats')),
+        ),
+
+        h('div', { className: 'ml-auto flex items-center gap-2 sm:gap-3' },
+          refresh && h('button', {
+            onClick: refresh, title: 'Refresh', disabled: refreshing,
+            className: 'rounded-lg border border-navy-700 bg-navy-800/60 p-2 text-slate-300 transition hover:bg-navy-700 focus-ring disabled:opacity-50',
+          }, h(Icon.Clock, { className: `w-4 h-4 ${refreshing ? 'animate-spin' : ''}` })),
+
+          h('div', { className: 'hidden items-center gap-2.5 rounded-xl border border-navy-800 bg-navy-850 px-3 py-1.5 sm:flex' },
+            h('span', { className: 'flex h-7 w-7 items-center justify-center rounded-full bg-mint-soft text-mint font-semibold text-xs' },
+              user.name.split(' ').map((p) => p[0]).slice(0, 2).join('')),
+            h('div', { className: 'leading-tight' },
+              h('div', { className: 'text-sm font-semibold text-slate-100' }, user.name),
+              h('div', { className: 'text-[11px] text-slate-500' }, user.role),
+            ),
+          ),
+          h('button', {
+            onClick: onLogout, title: 'Log out',
+            className: 'inline-flex items-center gap-2 rounded-xl border border-navy-700 bg-navy-800/60 px-3 py-2 text-sm text-slate-300 transition hover:bg-navy-700 hover:text-white focus-ring',
+          }, h(Icon.Logout, { className: 'w-4 h-4' }), h('span', { className: 'hidden sm:inline' }, 'Logout')),
+        ),
+      ),
+    )
+  );
+}
+
+/* --------------------------------------------------------------- login */
+
+function Login({ onLoggedIn }) {
+  const [username, setUsername] = useState('student');
+  const [password, setPassword] = useState('student123');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(e) {
+    e.preventDefault();
+    setLoading(true); setError('');
+    try {
+      const { user } = await Api.login(username.trim(), password);
+      Api.Session.set(user);
+      onLoggedIn(user);
+    } catch (err) {
+      setError(err.message || 'Login failed');
+    } finally { setLoading(false); }
+  }
+
+  function fill(role) {
+    if (role === 'student') { setUsername('student'); setPassword('student123'); }
+    else { setUsername('admin'); setPassword('admin123'); }
+    setError('');
+  }
+
+  return (
+    h('div', { className: 'flex min-h-screen items-center justify-center p-4' },
+      h('div', { className: 'w-full max-w-md' },
+        // brand
+        h('div', { className: 'mb-8 flex flex-col items-center text-center' },
+          h('div', { className: 'mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-mint text-navy-950 shadow-glow' },
+            h(Icon.Logo, { className: 'w-7 h-7' })),
+          h('h1', { className: 'text-2xl font-bold tracking-tight text-white' },
+            'Campus', h('span', { className: 'text-mint' }, 'Pulse')),
+          h('p', { className: 'mt-2 text-sm text-slate-400' },
+            'Smart Campus & Exam Issue Reporting and Resolution Tracker'),
+        ),
+
+        h('div', { className: 'card p-6 sm:p-7' },
+          h('form', { onSubmit: submit, className: 'space-y-4' },
+            h(Field, { label: 'Username', htmlFor: 'username' },
+              h('div', { className: 'relative' },
+                h(Icon.User, { className: 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500' }),
+                h(TextInput, { id: 'username', value: username, onChange: (e) => setUsername(e.target.value),
+                  autoComplete: 'username', className: 'pl-9', placeholder: 'student' }),
+              )),
+
+            h(Field, { label: 'Password', htmlFor: 'password' },
+              h('div', { className: 'relative' },
+                h(Icon.Lock, { className: 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500' }),
+                h(TextInput, { id: 'password', type: 'password', value: password,
+                  onChange: (e) => setPassword(e.target.value), autoComplete: 'current-password',
+                  className: 'pl-9', placeholder: '••••••••' }),
+              )),
+
+            error && h('div', { className: 'flex items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger' },
+              h(Icon.Alert, { className: 'w-4 h-4' }), error),
+
+            h(Button, { type: 'submit', loading, className: 'w-full', size: 'lg' },
+              loading ? 'Signing in…' : 'Sign in'),
+          ),
+
+          h('div', { className: 'mt-6 border-t border-navy-700 pt-5' },
+            h('p', { className: 'mb-3 text-center text-xs font-medium uppercase tracking-wider text-slate-500' }, 'Demo accounts'),
+            h('div', { className: 'grid grid-cols-2 gap-2' },
+              h('button', { onClick: () => fill('student'), type: 'button',
+                className: 'rounded-xl border border-navy-700 bg-navy-850 px-3 py-2.5 text-left transition hover:border-mint/40 hover:bg-navy-800 focus-ring' },
+                h('div', { className: 'text-sm font-semibold text-slate-100' }, 'Student'),
+                h('div', { className: 'text-[11px] text-slate-500' }, 'student / student123')),
+              h('button', { onClick: () => fill('admin'), type: 'button',
+                className: 'rounded-xl border border-navy-700 bg-navy-850 px-3 py-2.5 text-left transition hover:border-mint/40 hover:bg-navy-800 focus-ring' },
+                h('div', { className: 'text-sm font-semibold text-slate-100' }, 'Admin'),
+                h('div', { className: 'text-[11px] text-slate-500' }, 'admin / admin123')),
+            ),
+          ),
+        ),
+        h('p', { className: 'mt-6 text-center text-xs text-slate-600' },
+          'Hackathon prototype · No real authentication · Local demo only'),
+      ),
+    )
+  );
+}
+
+// Expose for other modules.
+window.components = { STATUS_STYLE, PRIORITY_STYLE, timeAgo, trackMeta,
+  StatusBadge, PriorityBadge, TrackTag, Field, TextInput, TextArea, Select,
+  Button, EmptyState, Toast, TopBar, Login };
+
+
+/* === dashboard.js === */
+/* CampusPulse — dashboard views.
+   - ReportForm   : student issue submission (track selector swaps categories)
+   - StudentDashboard : own issues list + form
+   - StatCard / StatGrid
+   - IssueTable   : admin filterable table with inline status update
+   - AdminDashboard
+   Shared presentational bits (badges, inputs) come from components.js. */
+
+const { createElement: h, useState, useEffect, useMemo, useRef } = React;
+const { StatusBadge, PriorityBadge, TrackTag, Field, TextInput, TextArea, Select,
+  Button, EmptyState, timeAgo } = window.components;
+
+/* --------------------------------------------------------------- report form */
+
+const TRACKS = [
+  { id: 'Campus', label: 'Campus Issue', desc: 'Electrical, plumbing, Wi-Fi…', Icon: Icon.CampusTrack },
+  { id: 'Exam',   label: 'Exam Issue',   desc: 'Hall ticket, seating, results…', Icon: Icon.ExamTrack },
+];
+
+function ReportForm({ onCreated }) {
+  const [meta, setMeta] = useState({ campusCategories: [], examCategories: [] });
+  const [track, setTrack] = useState('Campus');
+  const [form, setForm] = useState({ title: '', description: '', category: '', location: '' });
+  const [errors, setErrors] = useState({});
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    Api.meta().then(setMeta).catch(() => {});
+  }, []);
+  useEffect(() => {
+    // reset category whenever track changes, then default to first option
+    const cats = track === 'Campus' ? meta.campusCategories : meta.examCategories;
+    setForm((f) => ({ ...f, category: cats[0] || '' }));
+  }, [track, meta]);
+
+  const categories = track === 'Campus' ? meta.campusCategories : meta.examCategories;
+  const locLabel = track === 'Exam' ? 'Exam hall / subject' : 'Location';
+  const locPlaceholder = track === 'Exam' ? 'e.g. Exam Hall 3 — Engg Maths' : 'e.g. ECE Block, Room 204';
+  const willBeHigh = track === 'Exam' || form.category === 'Safety/Security';
+
+  function set(k, v) { setForm((f) => ({ ...f, [k]: v })); }
+
+  function validate() {
+    const e = {};
+    if (!form.title.trim()) e.title = 'Please add a short title';
+    if (!form.description.trim()) e.description = 'Describe the issue';
+    if (!form.category) e.category = 'Pick a category';
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }
+
+  async function submit(ev) {
+    ev.preventDefault();
+    if (!validate()) return;
+    setLoading(true);
+    try {
+      const issue = await Api.createIssue({
+        title: form.title, description: form.description,
+        track, category: form.category, location: form.location,
+      });
+      setForm({ title: '', description: '', location: '', category: categories[0] || '' });
+      onCreated(issue);
+    } catch (err) {
+      setErrors({ form: err.message });
+    } finally { setLoading(false); }
+  }
+
+  return (
+    h('form', { onSubmit: submit, className: 'card p-5 sm:p-6' },
+      h('div', { className: 'mb-5 flex items-center gap-2' },
+        h('span', { className: 'flex h-8 w-8 items-center justify-center rounded-lg bg-mint-soft text-mint' },
+          h(Icon.Plus, { className: 'w-4 h-4' })),
+        h('div', null,
+          h('h2', { className: 'text-base font-semibold text-white' }, 'Report a new issue'),
+          h('p', { className: 'text-xs text-slate-500' }, 'Fill the details — it only takes a minute'),
+        )),
+
+      // track selector
+      h('div', { className: 'mb-4 grid grid-cols-2 gap-3' },
+        TRACKS.map((t) => {
+          const active = track === t.id;
+          return h('button', {
+            key: t.id, type: 'button', onClick: () => setTrack(t.id),
+            className: `group flex items-start gap-3 rounded-xl border p-3 text-left transition focus-ring ${active ? 'border-mint bg-mint-soft/40 shadow-glow' : 'border-navy-700 bg-navy-950/40 hover:border-navy-600'}`,
+          },
+            h('span', { className: `mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg ${active ? 'bg-mint text-navy-950' : 'bg-navy-800 text-slate-400 group-hover:text-slate-200'}` },
+              h(t.Icon, { className: 'w-4 h-4' })),
+            h('span', { className: 'min-w-0' },
+              h('span', { className: 'block text-sm font-semibold text-slate-100' }, t.label),
+              h('span', { className: 'block text-[11px] text-slate-500' }, t.desc)),
+          );
+        })),
+
+      h('div', { className: 'space-y-4' },
+        h(Field, { label: 'Title', htmlFor: 'title', error: errors.title },
+          h(TextInput, { id: 'title', value: form.title, onChange: (e) => set('title', e.target.value),
+            placeholder: 'Short summary, e.g. "Flickering tube light in ECE Lab"' })),
+
+        h('div', { className: 'grid gap-4 sm:grid-cols-2' },
+          h(Field, { label: 'Category', htmlFor: 'category', error: errors.category },
+            h(Select, { id: 'category', value: form.category, onChange: (e) => set('category', e.target.value) },
+              categories.map((c) => h('option', { key: c, value: c }, c)))),
+
+          h(Field, { label: locLabel, htmlFor: 'location', hint: 'optional' },
+            h(TextInput, { id: 'location', value: form.location, onChange: (e) => set('location', e.target.value),
+              placeholder: locPlaceholder })),
+        ),
+
+        h(Field, { label: 'Description', htmlFor: 'description', error: errors.description },
+          h(TextArea, { id: 'description', value: form.description, onChange: (e) => set('description', e.target.value),
+            placeholder: 'Add details: what happened, when, who is affected…' })),
+
+        // priority heads-up
+        h('div', { className: `flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs ${willBeHigh ? 'border-danger/30 bg-danger-soft text-danger' : 'border-navy-700 bg-navy-950/40 text-slate-400'}` },
+          h(Icon.Alert, { className: 'w-4 h-4' }),
+          willBeHigh
+            ? h('span', null, 'This will be flagged ', h('b', null, 'High priority'), ' and shown at the top of the queue.')
+            : h('span', null, 'Standard priority.')),
+
+        errors.form && h('p', { className: 'text-sm text-danger' }, errors.form),
+
+        h('div', { className: 'flex justify-end gap-2 pt-1' },
+          h(Button, { type: 'submit', loading }, loading ? 'Submitting…' : 'Submit report'),
+        ),
+      ),
+    )
+  );
+}
+
+/* ----------------------------------------------------------- issue row/card */
+
+function IssueCard({ issue, children }) {
+  const high = issue.priority === 'High';
+  return (
+    h('div', { 'data-issue-id': issue.id,
+      className: `animate-row-in rounded-xl border bg-navy-900/40 p-4 transition hover:bg-navy-850 ${high ? 'border-l-4 border-l-danger border-y-navy-700 border-r-navy-700' : 'border-navy-700/70'}` },
+      h('div', { className: 'flex items-start gap-3' },
+        h('span', { className: `mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${high ? 'bg-danger-soft text-danger' : 'bg-navy-800 text-slate-300'}` },
+          h(CategoryIcon, { category: issue.category, className: 'w-4 h-4' })),
+        h('div', { className: 'min-w-0 flex-1' },
+          h('div', { className: 'flex flex-wrap items-center gap-x-2 gap-y-1' },
+            h('h3', { className: 'truncate text-sm font-semibold text-slate-100' }, issue.title),
+            h(TrackTag, { track: issue.track }),
+            high && h(PriorityBadge, { priority: issue.priority }),
+          ),
+          h('p', { className: 'mt-1 line-clamp-2 text-xs text-slate-400' }, issue.description),
+          h('div', { className: 'mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500' },
+            h('span', { className: 'inline-flex items-center gap-1' }, h(Icon.Pin, { className: 'w-3 h-3' }),
+              issue.location || (issue.track === 'Exam' ? 'No hall specified' : 'No location')),
+            h('span', { className: 'inline-flex items-center gap-1' }, h(Icon.Clock, { className: 'w-3 h-3' }),
+              timeAgo(issue.createdAt)),
+            h('span', { className: 'rounded-md bg-navy-800 px-1.5 py-0.5 text-slate-400' }, issue.category),
+          ),
+        ),
+        h('div', { className: 'flex shrink-0 flex-col items-end gap-2' },
+          h(StatusBadge, { status: issue.status }),
+          children,
+        ),
+      ),
+    )
+  );
+}
+
+/* ------------------------------------------------------- student dashboard */
+
+function StudentDashboard({ user, onToast }) {
+  const [issues, setIssues] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = async () => {
+    setRefreshing(true);
+    try { setIssues(await Api.listIssues()); }
+    catch (e) { onToast({ type: 'error', message: e.message }); }
+    finally { setRefreshing(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const created = (issue) => {
+    setIssues((prev) => prev ? [issue, ...prev] : [issue]);
+    onToast({ message: 'Report submitted — admins have been notified.' });
+  };
+
+  return (
+    h('div', { className: 'mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8' },
+      // hero
+      h('div', { className: 'mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between' },
+        h('div', null,
+          h('h1', { className: 'text-xl font-bold text-white sm:text-2xl' }, `Hi ${user.name.split(' ')[0]} 👋`),
+          h('p', { className: 'mt-1 text-sm text-slate-400' }, 'Report a campus or exam issue and track it to resolution.'),
+        ),
+        h('button', { onClick: load, disabled: refreshing,
+          className: 'inline-flex items-center gap-2 self-start rounded-xl border border-navy-700 bg-navy-800/60 px-3 py-2 text-sm text-slate-300 transition hover:bg-navy-700 focus-ring disabled:opacity-50' },
+          h(Icon.Clock, { className: `w-4 h-4 ${refreshing ? 'animate-spin' : ''}` }), 'Refresh'),
+      ),
+
+      h('div', { className: 'grid gap-6 lg:grid-cols-5' },
+        h('div', { className: 'lg:col-span-2' },
+          h(ReportForm, { onCreated: created })),
+
+        h('div', { className: 'lg:col-span-3' },
+          h('div', { className: 'mb-3 flex items-center justify-between' },
+            h('h2', { className: 'text-base font-semibold text-white' }, 'Your reports'),
+            issues && h('span', { className: 'text-xs text-slate-500' }, `${issues.length} ${issues.length === 1 ? 'issue' : 'issues'}`),
+          ),
+          issues === null
+            ? h('div', { className: 'card p-8 text-center text-sm text-slate-500' }, h('span', { className: 'cp-spinner text-mint' }), ' Loading your reports…')
+            : issues.length === 0
+              ? h(EmptyState, { icon: Icon.Inbox, title: 'No issues reported yet',
+                  subtitle: 'Use the form to report your first campus or exam issue — it will appear here instantly.',
+                  action: h(Button, { variant: 'ghost', size: 'sm' }, h(Icon.Plus, { className: 'w-4 h-4' }), 'Fill the form') })
+              : h('div', { className: 'space-y-3' }, issues.map((i) => h(IssueCard, { key: i.id, issue: i }))),
+        ),
+      ),
+    )
+  );
+}
+
+/* --------------------------------------------------------------- admin stats */
+
+function StatCard({ label, value, tone = 'default', icon: IconCmp }) {
+  const tones = {
+    default: 'text-slate-200',
+    reported: 'text-danger',
+    progress: 'text-amber',
+    resolved: 'text-mint',
+  };
+  return (
+    h('div', { className: 'card p-4 sm:p-5' },
+      h('div', { className: 'flex items-center justify-between' },
+        h('span', { className: 'text-xs font-medium uppercase tracking-wider text-slate-500' }, label),
+        IconCmp && h(IconCmp, { className: 'w-4 h-4 text-slate-500' })),
+      h('div', { className: `mt-2 text-2xl font-bold sm:text-3xl ${tones[tone]}` }, value),
+    )
+  );
+}
+
+function StatGrid({ stats }) {
+  if (!stats) {
+    return h('div', { className: 'grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4' },
+      [0,1,2,3].map((i) => h('div', { key: i, className: 'card h-[88px] animate-pulse bg-navy-900/50' })));
+  }
+  return h('div', { className: 'grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4' },
+    h(StatCard, { label: 'Total', value: stats.total, icon: Icon.Inbox }),
+    h(StatCard, { label: 'Reported', value: stats.Reported, tone: 'reported', icon: Icon.Alert }),
+    h(StatCard, { label: 'In Progress', value: stats['In Progress'], tone: 'progress', icon: Icon.Clock }),
+    h(StatCard, { label: 'Resolved', value: stats.Resolved, tone: 'resolved', icon: Icon.Check }),
+  );
+}
+
+/* ----------------------------------------------------------- filter bar */
+
+function FilterBar({ filters, setFilters, counts }) {
+  const set = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
+  const Select_ = (value, key, opts, label) => (
+    h('div', { className: 'relative' },
+      h(Select, { value, onChange: (e) => set(key, e.target.value), className: 'py-2 text-xs', 'aria-label': label },
+        h('option', { value: '' }, `${label} (${counts?.total ?? ''})`),
+        opts.map(([v, l]) => h('option', { key: v, value: v }, l))))
+  );
+
+  return (
+    h('div', { className: 'card flex flex-wrap items-center gap-2 p-3' },
+      h('span', { className: 'mr-1 hidden items-center gap-1.5 text-xs font-medium text-slate-400 sm:flex' },
+        h(Icon.Filter, { className: 'w-4 h-4' }), 'Filters'),
+      Select_(filters.track, 'track', [['Campus', 'Campus'], ['Exam', 'Exam']], 'Track'),
+      Select_(filters.status, 'status', window.STATUS_LIST.map((s) => [s, s]), 'Status'),
+      Select_(filters.priority, 'priority', [['High', 'High'], ['Medium', 'Medium']], 'Priority'),
+      h('div', { className: 'relative ml-auto w-full sm:w-56' },
+        h(Icon.Search, { className: 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500' }),
+        h(TextInput, { value: filters.q, onChange: (e) => set('q', e.target.value),
+          placeholder: 'Search title, location…', className: 'py-2 pl-9 text-xs' })),
+    )
+  );
+}
+
+/* ----------------------------------------------------------- admin table */
+
+function IssueTable({ issues, onStatus }) {
+  if (issues.length === 0) {
+    return h(EmptyState, { icon: Icon.Inbox, title: 'No issues match these filters',
+      subtitle: 'Try clearing a filter or adjusting your search.' });
+  }
+  return (
+    h('div', { className: 'card overflow-hidden' },
+      // desktop table
+      h('div', { className: 'hidden overflow-x-auto md:block' },
+        h('table', { className: 'w-full text-left text-sm' },
+          h('thead', null,
+            h('tr', { className: 'border-b border-navy-800 text-[11px] uppercase tracking-wider text-slate-500' },
+              ['Issue', 'Track', 'Category', 'Location', 'Priority', 'Status', 'Reported', 'Update'].map((c) =>
+                h('th', { key: c, className: 'px-4 py-3 font-medium' }, c)))),
+          h('tbody', null,
+            issues.map((i) => {
+              const high = i.priority === 'High';
+              return h('tr', { key: i.id,
+                className: `border-b border-navy-800/60 transition hover:bg-navy-850 ${high ? 'border-l-4 border-l-danger' : ''}` },
+                h('td', { className: 'max-w-[260px] px-4 py-3' },
+                  h('div', { className: 'truncate font-medium text-slate-100' }, i.title),
+                  h('div', { className: 'truncate text-xs text-slate-500' }, i.reportedBy)),
+                h('td', { className: 'px-4 py-3' }, h(TrackTag, { track: i.track })),
+                h('td', { className: 'px-4 py-3' },
+                  h('span', { className: 'inline-flex items-center gap-1.5 text-xs text-slate-300' },
+                    h(CategoryIcon, { category: i.category, className: 'w-3.5 h-3.5' }), i.category)),
+                h('td', { className: 'max-w-[160px] px-4 py-3' },
+                  h('span', { className: 'block truncate text-xs text-slate-400' }, i.location || '—')),
+                h('td', { className: 'px-4 py-3' }, h(PriorityBadge, { priority: i.priority })),
+                h('td', { className: 'px-4 py-3' }, h(StatusBadge, { status: i.status })),
+                h('td', { className: 'whitespace-nowrap px-4 py-3 text-xs text-slate-500' }, timeAgo(i.createdAt)),
+                h('td', { className: 'px-4 py-3' },
+                  h(StatusSelect, { value: i.status, onChange: (s) => onStatus(i.id, s) })),
+              );
+            }))),
+      // mobile cards
+      h('div', { className: 'divide-y divide-navy-800/60 md:hidden' },
+        issues.map((i) => h('div', { key: i.id, className: 'p-4' },
+          h(IssueCard, { issue: i },
+            h(StatusSelect, { value: i.status, onChange: (s) => onStatus(i.id, s), compact: true }))))),
+    )
+  );
+}
+
+function StatusSelect({ value, onChange, compact }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+  const opts = window.STATUS_LIST;
+  const cur = window.STATUS_STYLE[value] || window.STATUS_STYLE['Reported'];
+  return (
+    h('div', { ref, className: 'relative' },
+      h('button', { type: 'button', onClick: () => setOpen((o) => !o),
+        className: `inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition focus-ring ${cur.wrap} ${compact ? '' : 'min-w-[120px] justify-between'}` },
+        h('span', { className: `h-1.5 w-1.5 rounded-full ${cur.dot}` }), value,
+        h('span', { className: 'ml-1 opacity-70' }, '▾')),
+      open && h('div', { className: 'absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-navy-700 bg-navy-850 shadow-card' },
+        opts.map((s) => {
+          const st = window.STATUS_STYLE[s];
+          return h('button', { key: s, type: 'button',
+            onClick: () => { setOpen(false); onChange(s); },
+            className: `flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-navy-800 ${s === value ? 'text-white' : 'text-slate-300'}` },
+            h('span', { className: `h-1.5 w-1.5 rounded-full ${st.dot}` }), s,
+            s === value && h(Icon.Check, { className: 'ml-auto w-3.5 h-3.5 text-mint' }));
+        }))),
+    )
+  );
+}
+
+/* ----------------------------------------------------------- admin dashboard */
+
+function AdminDashboard({ user, onToast }) {
+  const [stats, setStats] = useState(null);
+  const [issues, setIssues] = useState(null);
+  const [filters, setFilters] = useState({ track: '', status: '', priority: '', q: '' });
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = async () => {
+    setRefreshing(true);
+    try {
+      const [s, list] = await Promise.all([Api.stats(), Api.listIssues()]);
+      setStats(s); setIssues(list);
+    } catch (e) { onToast({ type: 'error', message: e.message }); }
+    finally { setRefreshing(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const filtered = useMemo(() => {
+    if (!issues) return [];
+    const q = filters.q.trim().toLowerCase();
+    return issues.filter((i) => {
+      if (filters.track && i.track !== filters.track) return false;
+      if (filters.status && i.status !== filters.status) return false;
+      if (filters.priority && i.priority !== filters.priority) return false;
+      if (q && !(`${i.title} ${i.description} ${i.location} ${i.reportedBy} ${i.category}`.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }, [issues, filters]);
+
+  async function updateStatus(id, status) {
+    // optimistic: update locally first
+    const prev = issues;
+    setIssues((arr) => (arr || []).map((i) => (i.id === id ? { ...i, status } : i)));
+    setStats((s) => s ? { ...s, [prev.find((i) => i.id === id).status]: (s[prev.find((i) => i.id === id).status] || 1) - 1, [status]: (s[status] || 0) + 1, total: s.total } : s);
+    try {
+      await Api.updateStatus(id, status);
+      onToast({ message: `Status updated to "${status}".` });
+    } catch (e) {
+      setIssues(prev); // rollback
+      await load();
+      onToast({ type: 'error', message: e.message });
+    }
+  }
+
+  return (
+    h('div', { className: 'mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8' },
+      h('div', { className: 'mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between' },
+        h('div', null,
+          h('h1', { className: 'text-xl font-bold text-white sm:text-2xl' }, 'Issue Resolution Console'),
+          h('p', { className: 'mt-1 text-sm text-slate-400' }, `Welcome back, ${user.name}. High-priority items surface at the top.`)),
+        h('button', { onClick: load, disabled: refreshing,
+          className: 'inline-flex items-center gap-2 self-start rounded-xl border border-navy-700 bg-navy-800/60 px-3 py-2 text-sm text-slate-300 transition hover:bg-navy-700 focus-ring disabled:opacity-50' },
+          h(Icon.Clock, { className: `w-4 h-4 ${refreshing ? 'animate-spin' : ''}` }), 'Refresh'),
+      ),
+
+      h('div', { className: 'mb-5' }, h(StatGrid, { stats })),
+
+      h('div', { className: 'mb-4' },
+        h(FilterBar, { filters, setFilters, counts: stats })),
+
+      issues === null
+        ? h('div', { className: 'card p-10 text-center text-sm text-slate-500' }, h('span', { className: 'cp-spinner text-mint' }), ' Loading issues…')
+        : h('div', null,
+            h('div', { className: 'mb-3 flex items-center justify-between text-xs text-slate-500' },
+              h('span', null, `Showing ${filtered.length} of ${issues.length} issues`),
+              h('span', { className: 'hidden items-center gap-1.5 sm:flex' },
+                h('span', { className: 'h-2 w-2 rounded-sm bg-danger' }), '= High priority')),
+            h(IssueTable, { issues: filtered, onStatus: updateStatus })),
+    )
+  );
+}
+
+// expose
+window.STATUS_LIST = ['Reported', 'In Progress', 'Resolved'];
+window.dash = { ReportForm, StudentDashboard, StatGrid, IssueTable, AdminDashboard };
+
+
+/* === app.js === */
+/* CampusPulse — root app: session handling + view routing. */
+
+const { createElement: h, useState, useEffect, useCallback } = React;
+const { TopBar, Login, Toast } = window.components;
+const { StudentDashboard, AdminDashboard, StatGrid } = window.dash;
+
+function App() {
+  const [user, setUser] = useState(() => Api.me());
+  const [tab, setTab] = useState('board'); // admin tab: 'board' | 'stats'
+  const [toast, setToast] = useState(null);
+  const [refreshKey, setRefreshKey] = useState(0); // bump to trigger TopBar refresh
+  const [refreshing, setRefreshing] = useState(false);
+
+  // tiny toast helper with auto-dismiss
+  const notify = useCallback((t) => {
+    setToast(t);
+    setTimeout(() => setToast(null), 3200);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setRefreshKey((k) => k + 1);
+    setTimeout(() => setRefreshing(false), 500);
+  }, []);
+
+  function logout() {
+    Api.logout();
+    setUser(null);
+    setTab('board');
+  }
+
+  if (!user) {
+    return h(React.Fragment, null,
+      h(Login, { onLoggedIn: setUser }),
+      h(Toast, { toast }));
+  }
+
+  return (
+    h('div', { className: 'min-h-screen' },
+      h(TopBar, {
+        user, onLogout: logout,
+        tab: user.role === 'Admin' ? tab : null,
+        setTab: user.role === 'Admin' ? setTab : null,
+        refresh, refreshing,
+      }),
+
+      user.role === 'Admin' && tab === 'stats'
+        ? h(AdminStatsView, { user, onToast: notify })
+        : user.role === 'Admin'
+          ? h(AdminDashboard, { key: refreshKey, user, onToast: notify })
+          : h(StudentDashboard, { key: refreshKey, user, onToast: notify }),
+
+      h('footer', { className: 'mx-auto max-w-7xl px-4 pb-10 pt-8 text-center text-xs text-slate-600 sm:px-6' },
+        'CampusPulse · Smart Campus & Exam Issue Tracker · Hackathon prototype'),
+      h(Toast, { toast }),
+    )
+  );
+}
+
+// The admin "Stats" tab reuses the dashboard grid but on its own page so the
+// tab nav feels meaningful. Keeps the prototype simple without a router.
+function AdminStatsView({ user, onToast }) {
+  const [stats, setStats] = useState(null);
+  useEffect(() => { Api.stats().then(setStats).catch((e) => onToast({ type: 'error', message: e.message })); }, []);
+  return (
+    h('div', { className: 'mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8' },
+      h('h1', { className: 'mb-5 text-xl font-bold text-white sm:text-2xl' }, 'Live stats summary'),
+      h(StatGrid, { stats }))
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+
+
+
+  </script>
+
+</html>
