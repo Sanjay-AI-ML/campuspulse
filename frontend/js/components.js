@@ -344,10 +344,117 @@ function Login({ onLoggedIn }) {
       h('p', { style: { textAlign: 'center', fontSize: 11.5, color: 'rgba(255,255,255,0.2)', marginTop: 20 } }, 'Team 9 · PS-4 FixIt · Hackathon prototype')));
 }
 
+/* ── Completion Report Modal (shown when admin marks issue Resolved) ── */
+function CompletionReportModal({ report, issueTitle, onClose }) {
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    const handler = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, []);
+
+  function formatHours(h) {
+    if (!h) return '—';
+    if (h < 1)  return `${Math.round(h * 60)} min`;
+    if (h < 24) return `${h.toFixed(1)} hrs`;
+    return `${(h / 24).toFixed(1)} days`;
+  }
+
+  function copyReport() {
+    const text = [
+      `CAMPUS ISSUE RESOLUTION REPORT`,
+      `Issue: ${issueTitle}`,
+      ``,
+      `✅ ${report.headline}`,
+      ``,
+      `What was done: ${report.what_was_done}`,
+      `Impact: ${report.impact}`,
+      `Resolution time: ${formatHours(report.resolution_hours)}`,
+      `Students affected (votes): ${report.votes || 0}`,
+      ``,
+      `🛡 Prevention: ${report.prevention_tip}`,
+      report.follow_up_required ? `\n⚠️ Follow-up needed: ${report.follow_up_note}` : '',
+    ].filter(Boolean).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  return ReactDOM.createPortal(
+    h('div', {
+      onClick: (e) => { if (e.target === e.currentTarget) onClose(); },
+      style: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(5px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 },
+      className: 'anim-fade-in',
+    },
+      h('div', { className: 'card anim-scale-in', style: { width: '100%', maxWidth: 520, overflow: 'hidden' } },
+
+        // Header — green success tone
+        h('div', { style: { background: 'rgba(61,220,151,0.08)', borderBottom: '1px solid rgba(61,220,151,0.15)', padding: '18px 20px' } },
+          h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 12 } },
+            h('div', { style: { width: 36, height: 36, borderRadius: 10, background: 'rgba(61,220,151,0.15)', border: '1px solid rgba(61,220,151,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#3ddc97', flexShrink: 0 } },
+              h(Icon.Check, { style: { width: 18, height: 18 } })),
+            h('div', { style: { flex: 1, minWidth: 0 } },
+              h('p', { style: { fontSize: 14, fontWeight: 700, color: '#3ddc97', marginBottom: 2 } }, 'Issue Resolved ✓'),
+              h('p', { style: { fontSize: 12.5, color: 'rgba(255,255,255,0.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, issueTitle)),
+            h('button', { onClick: onClose, style: { background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', flexShrink: 0 } },
+              h(Icon.X, { style: { width: 13, height: 13 } })))),
+
+        // Body
+        h('div', { style: { padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 } },
+
+          // Headline
+          h('div', { style: { padding: '10px 14px', background: 'rgba(61,220,151,0.06)', border: '1px solid rgba(61,220,151,0.12)', borderRadius: 9 } },
+            h('p', { style: { fontSize: 15, fontWeight: 600, color: 'rgba(255,255,255,0.9)', lineHeight: 1.4 } }, report.headline)),
+
+          // Stats row
+          h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 } },
+            h('div', { style: { padding: '10px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8 } },
+              h('p', { style: { fontSize: 10.5, fontWeight: 600, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 } }, 'Resolution Time'),
+              h('p', { style: { fontSize: 18, fontWeight: 700, color: '#3ddc97', letterSpacing: '-0.03em' } }, formatHours(report.resolution_hours))),
+            h('div', { style: { padding: '10px 12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 8 } },
+              h('p', { style: { fontSize: 10.5, fontWeight: 600, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 4 } }, 'Students Impacted'),
+              h('p', { style: { fontSize: 18, fontWeight: 700, color: '#f5b544', letterSpacing: '-0.03em' } }, report.votes || 0))),
+
+          // What was done
+          h('div', null,
+            h('p', { style: { fontSize: 10.5, fontWeight: 600, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 } }, 'What Was Done'),
+            h('p', { style: { fontSize: 13.5, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 } }, report.what_was_done)),
+
+          // Impact
+          h('div', null,
+            h('p', { style: { fontSize: 10.5, fontWeight: 600, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 6 } }, 'Impact'),
+            h('p', { style: { fontSize: 13.5, color: 'rgba(255,255,255,0.7)', lineHeight: 1.6 } }, report.impact)),
+
+          // Prevention tip
+          h('div', { style: { display: 'flex', gap: 10, padding: '10px 12px', background: 'rgba(139,124,248,0.07)', border: '1px solid rgba(139,124,248,0.18)', borderRadius: 8, alignItems: 'flex-start' } },
+            h(Icon.Shield, { style: { width: 14, height: 14, color: '#a99ef9', marginTop: 2, flexShrink: 0 } }),
+            h('div', null,
+              h('p', { style: { fontSize: 10.5, fontWeight: 600, color: '#a99ef9', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 3 } }, 'Prevention Tip'),
+              h('p', { style: { fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 } }, report.prevention_tip))),
+
+          // Follow-up warning
+          report.follow_up_required && report.follow_up_note && h('div', { style: { display: 'flex', gap: 10, padding: '10px 12px', background: 'rgba(245,181,68,0.07)', border: '1px solid rgba(245,181,68,0.2)', borderRadius: 8, alignItems: 'flex-start' } },
+            h(Icon.Alert, { style: { width: 14, height: 14, color: '#f5b544', marginTop: 2, flexShrink: 0 } }),
+            h('div', null,
+              h('p', { style: { fontSize: 10.5, fontWeight: 600, color: '#f5b544', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 3 } }, 'Follow-up Required'),
+              h('p', { style: { fontSize: 13, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 } }, report.follow_up_note)))),
+
+        // Footer actions
+        h('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end', padding: '14px 20px', borderTop: '1px solid rgba(255,255,255,0.06)' } },
+          h('button', { onClick: copyReport, className: 'btn btn-ghost btn-sm' },
+            copied ? h(Icon.Check, { style: { width: 13, height: 13, color: '#3ddc97' } }) : h(Icon.Copy, { style: { width: 13, height: 13 } }),
+            copied ? 'Copied!' : 'Copy Report'),
+          h('button', { onClick: onClose, className: 'btn btn-primary btn-sm' }, 'Done')))),
+    document.body
+  );
+}
+
 window.components = {
   STATUS_META, PRIORITY_META, timeAgo,
   StatusBadge, PriorityBadge, VoteBadge,
   Field, TextInput, TextArea, Select,
   EmptyState, Toast, TopBar, Login,
-  DuplicateWarningModal, AISummaryPanel,
+  DuplicateWarningModal, AISummaryPanel, CompletionReportModal,
 };

@@ -47,7 +47,7 @@ def _error(message: str, code: int = 400):
 
 
 def _current_user():
-    user_id = request.headers.get("x-user-id") or ""
+    user_id = request.headers.get("x-user-id") or request.args.get("_uid") or ""
     if not user_id:
         return None
     return _get_user_by_id(user_id)
@@ -185,21 +185,40 @@ def patch_status(issue_id: str):
     if status not in STATUSES:
         return _error(f"Status must be one of {STATUSES}", 400)
 
-    from store import update_status
+    from store import update_status, get_issue
+    # Grab the issue BEFORE updating so we can compute resolution time
+    issue_before = get_issue(issue_id)
     updated = update_status(issue_id, status)
     if not updated:
         return _error("Issue not found", 404)
 
-    # If resolving, optionally generate AI resolution message
-    resolution_msg = None
-    if status == "Resolved":
+    resolution_message = None
+    completion_report = None
+
+    if status == "Resolved" and issue_before:
+        # Compute resolution time in hours
         try:
-            from ai import generate_resolution_message
-            resolution_msg = generate_resolution_message(updated)
+            from datetime import datetime
+            created = datetime.fromisoformat(issue_before["createdAt"])
+            resolved = datetime.fromisoformat(updated["updatedAt"])
+            resolution_hours = max(0.1, (resolved - created).total_seconds() / 3600)
+        except Exception:
+            resolution_hours = 0
+
+        try:
+            from ai import generate_resolution_message, generate_completion_report
+            resolution_message = generate_resolution_message(updated)
+            completion_report = generate_completion_report(updated, resolution_hours)
+            completion_report["resolution_hours"] = round(resolution_hours, 1)
+            completion_report["votes"] = len(updated.get("votes", []))
         except Exception:
             pass
 
-    return jsonify({"issue": updated, "resolution_message": resolution_msg})
+    return jsonify({
+        "issue": updated,
+        "resolution_message": resolution_message,
+        "completion_report": completion_report,
+    })
 
 
 @app.patch("/api/issues/<issue_id>/vote")
@@ -345,6 +364,79 @@ def ai_status():
         return jsonify(get_provider_info())
     except Exception:
         return jsonify({"provider": "none", "model": "none", "available": False})
+
+
+# --- CSV Export -----------------------------------------------------------
+
+@app.get("/api/export/csv")
+def export_csv():
+    """Export issues as CSV. Supports ?status=&category=&priority= filters."""
+    user = _current_user()
+    if not user or user["role"] != "Admin":
+        return _error("Admin access required", 403)
+
+    import csv, io
+    from datetime import datetime, timezone
+
+    issues = list_issues()
+    issues = _apply_filters(issues)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Header
+    writer.writerow([
+        "ID", "Title", "Category", "Location", "Priority", "Status",
+        "Votes", "Reporter", "Reported At", "Last Updated",
+        "Resolution Time (hrs)", "AI Priority Reason", "Has Photo", "Description",
+    ])
+
+    for i in issues:
+        # Resolution time: only for resolved issues
+        res_hours = ""
+        if i.get("status") == "Resolved":
+            try:
+                created = datetime.fromisoformat(i["createdAt"])
+                updated = datetime.fromisoformat(i["updatedAt"])
+                res_hours = round((updated - created).total_seconds() / 3600, 1)
+            except Exception:
+                pass
+
+        writer.writerow([
+            i.get("id", ""),
+            i.get("title", ""),
+            i.get("category", ""),
+            i.get("location", ""),
+            i.get("priority", ""),
+            i.get("status", ""),
+            len(i.get("votes", [])),
+            i.get("reportedBy", ""),
+            i.get("createdAt", "")[:19].replace("T", " "),
+            i.get("updatedAt", "")[:19].replace("T", " "),
+            res_hours,
+            i.get("ai_priority_reason", ""),
+            "Yes" if i.get("photo") else "No",
+            i.get("description", "").replace("\n", " ")[:200],
+        ])
+
+    # Build filename with current date + active filters
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    filter_parts = []
+    if request.args.get("status"):    filter_parts.append(request.args.get("status").replace(" ", "-"))
+    if request.args.get("category"):  filter_parts.append(request.args.get("category").replace(" / ", "-").replace(" ", "-"))
+    if request.args.get("priority"):  filter_parts.append(request.args.get("priority"))
+    suffix = "_" + "_".join(filter_parts) if filter_parts else ""
+    filename = f"campuspulse_issues_{now}{suffix}.csv"
+
+    from flask import Response
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Type": "text/csv; charset=utf-8",
+        }
+    )
 
 
 # --- uploads + static ------------------------------------------------------

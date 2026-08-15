@@ -1,7 +1,7 @@
 /* CampusPulse — dashboards */
 const { createElement: h, useState, useEffect, useMemo, useRef } = React;
 const { StatusBadge, PriorityBadge, VoteBadge, Field, TextInput, TextArea, Select,
-  EmptyState, timeAgo, DuplicateWarningModal, AISummaryPanel } = window.components;
+  EmptyState, timeAgo, DuplicateWarningModal, AISummaryPanel, CompletionReportModal } = window.components;
 
 const CATEGORIES = [
   'Electrical / Fan', 'Projector / AV', 'Wi-Fi / Network',
@@ -452,6 +452,7 @@ function AdminDashboard({ user, onToast }) {
   const [issues, setIssues] = useState(null);
   const [filters, setFilters] = useState({ category: '', status: '', priority: '', q: '' });
   const [refreshing, setRefreshing] = useState(false);
+  const [completionReport, setCompletionReport] = useState(null); // { report, issueTitle }
 
   const load = async () => {
     setRefreshing(true);
@@ -477,23 +478,54 @@ function AdminDashboard({ user, onToast }) {
 
   async function updateStatus(id, status) {
     const prev = issues;
+    const issueBeingResolved = issues?.find((i) => i.id === id);
     setIssues((arr) => (arr || []).map((i) => i.id === id ? { ...i, status } : i));
     try {
-      const { issue, resolution_message } = await Api.updateStatus(id, status);
-      if (resolution_message) onToast({ type: 'ai', message: resolution_message });
-      else onToast({ message: `Status updated to "${status}"` });
+      const { issue, resolution_message, completion_report } = await Api.updateStatus(id, status);
+      // Show completion report modal for resolved issues
+      if (status === 'Resolved' && completion_report) {
+        setCompletionReport({ report: completion_report, issueTitle: issue.title });
+      } else if (resolution_message) {
+        onToast({ type: 'ai', message: resolution_message });
+      } else {
+        onToast({ message: `Status updated to "${status}"` });
+      }
       setIssues((arr) => (arr || []).map((i) => i.id === issue.id ? issue : i));
     } catch (e) { setIssues(prev); onToast({ type: 'error', message: e.message }); }
   }
 
+  // Build the CSV download URL from current filters
+  function downloadCsv() {
+    const url = Api.exportCsvUrl({ category: filters.category, status: filters.status, priority: filters.priority });
+    // Use a hidden link with x-user-id header workaround — since we need auth,
+    // we add it as a query param (backend reads it as fallback)
+    const link = document.createElement('a');
+    link.href = url + `&_uid=${Api.me()?.id || ''}`;
+    link.download = '';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    onToast({ message: 'CSV export started — check your downloads.' });
+  }
+
   return h('div', { style: { maxWidth: 1280, margin: '0 auto', padding: '28px 20px' } },
+    // Completion Report Modal
+    completionReport && h(CompletionReportModal, {
+      report: completionReport.report,
+      issueTitle: completionReport.issueTitle,
+      onClose: () => setCompletionReport(null),
+    }),
+
     // Header
     h('div', { style: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 } },
       h('div', null,
         h('h1', { style: { fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: 'rgba(255,255,255,0.95)', marginBottom: 4 } }, 'Issue Console'),
         h('p', { style: { fontSize: 13, color: 'rgba(255,255,255,0.35)' } }, `Welcome, ${user.name}. High priority + most-voted surface first.`)),
-      h('button', { onClick: load, disabled: refreshing, className: 'btn btn-ghost btn-sm' },
-        h(Icon.Clock, { style: { width: 13, height: 13, animation: refreshing ? 'spin 0.65s linear infinite' : 'none' } }), 'Refresh')),
+      h('div', { style: { display: 'flex', gap: 8 } },
+        h('button', { onClick: downloadCsv, className: 'btn btn-ghost btn-sm' },
+          h(Icon.Download, { style: { width: 13, height: 13 } }), 'Export CSV'),
+        h('button', { onClick: load, disabled: refreshing, className: 'btn btn-ghost btn-sm' },
+          h(Icon.Clock, { style: { width: 13, height: 13, animation: refreshing ? 'spin 0.65s linear infinite' : 'none' } }), 'Refresh'))),
 
     // Stats
     h('div', { style: { marginBottom: 20 } }, h(StatGrid, { stats })),

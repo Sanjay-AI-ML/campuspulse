@@ -85,6 +85,13 @@ const Api = {
   analytics() { return request('/api/analytics'); },
   meta() { return request('/api/meta'); },
 
+  // --- export ---
+  exportCsvUrl(filters = {}) {
+    const url = new URL('/api/export/csv', window.location.origin);
+    Object.entries(filters).forEach(([k, v]) => { if (v) url.searchParams.set(k, v); });
+    return url.toString();
+  },
+
   // --- AI endpoints ---
   ai: {
     suggestCategory(title, description) {

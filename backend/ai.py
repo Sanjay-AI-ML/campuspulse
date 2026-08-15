@@ -411,3 +411,59 @@ def generate_resolution_message(issue: dict) -> str:
         )},
     ], max_tokens=100)
     return result or f"Your issue '{issue.get('title')}' has been resolved by our maintenance team. Thank you for reporting it!"
+
+
+# ---------------------------------------------------------------------------
+# Feature 7 — AI Completion Report (on resolve)
+# ---------------------------------------------------------------------------
+
+SYSTEM_COMPLETION_REPORT = """You are a campus facilities manager writing an internal completion report.
+Given a resolved issue, produce a structured JSON completion report.
+
+Respond in JSON:
+{
+  "headline": "one-line summary of what was fixed (max 12 words)",
+  "what_was_done": "2-3 sentences describing the resolution action taken",
+  "impact": "who benefited and how (1-2 sentences)",
+  "prevention_tip": "one actionable tip to prevent this issue recurring",
+  "follow_up_required": true | false,
+  "follow_up_note": "only if follow_up_required is true — what still needs to be done"
+}"""
+
+
+def generate_completion_report(issue: dict, resolution_hours: float) -> dict:
+    """Generate a detailed AI completion report for a resolved issue."""
+    result = _chat([
+        {"role": "system", "content": SYSTEM_COMPLETION_REPORT},
+        {"role": "user", "content": (
+            f"Issue title: {issue.get('title')}\n"
+            f"Category: {issue.get('category')}\n"
+            f"Location: {issue.get('location', 'campus')}\n"
+            f"Description: {issue.get('description', '')[:300]}\n"
+            f"Priority: {issue.get('priority')}\n"
+            f"Votes (students affected): {len(issue.get('votes', []))}\n"
+            f"Resolution time: {resolution_hours:.1f} hours"
+        )},
+    ], max_tokens=280)
+
+    if result:
+        try:
+            cleaned = result.strip()
+            if cleaned.startswith("```"):
+                cleaned = "\n".join(cleaned.split("\n")[1:])
+            if cleaned.endswith("```"):
+                cleaned = "\n".join(cleaned.split("\n")[:-1])
+            data = json.loads(cleaned)
+            if "headline" in data:
+                return data
+        except Exception:
+            pass
+
+    return {
+        "headline": f"{issue.get('category', 'Issue')} resolved at {issue.get('location', 'campus')}",
+        "what_was_done": f"The reported issue has been addressed by the maintenance team.",
+        "impact": f"{len(issue.get('votes', []))} student(s) were affected. The issue has been resolved.",
+        "prevention_tip": "Schedule regular maintenance inspections to catch issues early.",
+        "follow_up_required": False,
+        "follow_up_note": "",
+    }
