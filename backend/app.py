@@ -33,26 +33,7 @@ UPLOAD_DIR = Path(__file__).resolve().parent / "data" / "uploads"
 ALLOWED_EXT = {"jpg", "jpeg", "png", "gif", "webp"}
 
 app = Flask(__name__, static_folder=None)
-CORS(app)  # allow dev proxies / mobile testing
-
-# Load OPENROUTER_API_KEY from .env if present
-_env_file = Path(__file__).resolve().parent.parent.parent / "AppData/Local/hermes/.env"
-if not os.environ.get("OPENROUTER_API_KEY"):
-    # Try to load from common locations
-    for _env_path in [
-        Path.home() / "AppData/Local/hermes/.env",
-        Path(__file__).resolve().parent / ".env",
-        Path(__file__).resolve().parent.parent / ".env",
-    ]:
-        if _env_path.exists():
-            with open(_env_path) as _f:
-                for _line in _f:
-                    _line = _line.strip()
-                    if _line.startswith("OPENROUTER_API_KEY=") and not _line.startswith("#"):
-                        os.environ["OPENROUTER_API_KEY"] = _line.split("=", 1)[1].strip()
-                        break
-            if os.environ.get("OPENROUTER_API_KEY"):
-                break
+CORS(app)
 
 
 # --- helpers ---------------------------------------------------------------
@@ -356,6 +337,16 @@ def ai_duplicates():
         return jsonify({"similar": similar, "fallback": True})
 
 
+@app.get("/api/ai/status")
+def ai_status():
+    """Return which AI provider is active."""
+    try:
+        from ai import get_provider_info
+        return jsonify(get_provider_info())
+    except Exception:
+        return jsonify({"provider": "none", "model": "none", "available": False})
+
+
 # --- uploads + static ------------------------------------------------------
 
 @app.get("/uploads/<path:filename>")
@@ -388,5 +379,13 @@ if __name__ == "__main__":
         except Exception as exc:
             print(f"[warn] seed failed: {exc}")
     print(f"  CampusPulse running on http://localhost:{port}")
-    print(f"  AI features: {'ENABLED' if os.environ.get('OPENROUTER_API_KEY') else 'DISABLED (no OPENROUTER_API_KEY)'}")
+    try:
+        from ai import get_provider_info
+        info = get_provider_info()
+        if info["available"]:
+            print(f"  AI features: ENABLED — {info['provider'].upper()} / {info['model']}")
+        else:
+            print("  AI features: DISABLED — set GROQ_API_KEY or GEMINI_API_KEY in .env")
+    except Exception:
+        print("  AI features: DISABLED")
     app.run(host="0.0.0.0", port=port, debug=True)

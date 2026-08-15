@@ -1,19 +1,19 @@
-"""CampusPulse AI module — agentic LLM features via OpenRouter.
+"""CampusPulse AI module — agentic LLM features.
 
-All AI features degrade gracefully: if the API key is missing or the call
-fails, each function returns a sensible fallback so the app keeps working.
+Provider priority (first available key wins):
+  1. GROQ_API_KEY      → Groq (llama-3.3-70b-versatile) — fastest, free tier
+  2. GEMINI_API_KEY    → Google Gemini (gemini-1.5-flash) — free tier
+  3. OPENROUTER_API_KEY → OpenRouter (gpt-4o-mini) — fallback
+
+All AI features degrade gracefully: if no key is set, returns sensible fallback.
 
 Features:
   - suggest_category(title, description) -> str
-      Auto-categorize an issue from free text.
   - prioritize_issue(title, description, category) -> dict
-      Suggest priority + reasoning in one shot.
   - detect_duplicates(title, description, category, open_issues) -> list
-      Semantic duplicate detection — smarter than keyword overlap.
-  - summarize_issue(issue) -> str
-      Admin-facing action summary + suggested resolution.
+  - summarize_issue(issue) -> dict
   - admin_assistant(question, issues, stats) -> str
-      Natural language Q&A over the live issue database.
+  - generate_resolution_message(issue) -> str
 """
 
 from __future__ import annotations
@@ -26,39 +26,103 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Provider setup — OpenRouter with openai-compatible SDK
+# Provider setup — auto-detect from env
 # ---------------------------------------------------------------------------
 
 _client = None
-_MODEL = "openai/gpt-4o-mini"   # fast + cheap, great for structured tasks
-_MODEL_HEAVY = "openai/gpt-4o-mini"
+_MODEL = None
+_PROVIDER = None
+
+
+def _load_env():
+    """Load .env from project root if present."""
+    env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+    env_path = os.path.normpath(env_path)
+    if os.path.exists(env_path):
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    k, v = line.split('=', 1)
+                    if k.strip() not in os.environ:
+                        os.environ[k.strip()] = v.strip()
 
 
 def _get_client():
-    global _client
+    global _client, _MODEL, _PROVIDER
     if _client is not None:
         return _client
-    try:
-        from openai import OpenAI
-        api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        if not api_key:
-            return None
-        _client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-            default_headers={
-                "HTTP-Referer": "http://localhost:5001",
-                "X-Title": "CampusPulse",
-            },
-        )
-        return _client
-    except Exception as exc:
-        logger.warning("AI client init failed: %s", exc)
-        return None
+
+    _load_env()
+
+    # 1. Groq — fastest, free tier
+    groq_key = os.environ.get("GROQ_API_KEY")
+    if groq_key:
+        try:
+            from openai import OpenAI
+            _client = OpenAI(
+                base_url="https://api.groq.com/openai/v1",
+                api_key=groq_key,
+            )
+            _MODEL = "llama-3.3-70b-versatile"
+            _PROVIDER = "groq"
+            logger.info("AI provider: Groq (%s)", _MODEL)
+            return _client
+        except Exception as exc:
+            logger.warning("Groq init failed: %s", exc)
+
+    # 2. Gemini via OpenAI-compatible endpoint
+    gemini_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if gemini_key:
+        try:
+            from openai import OpenAI
+            _client = OpenAI(
+                base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
+                api_key=gemini_key,
+            )
+            _MODEL = "gemini-1.5-flash"
+            _PROVIDER = "gemini"
+            logger.info("AI provider: Gemini (%s)", _MODEL)
+            return _client
+        except Exception as exc:
+            logger.warning("Gemini init failed: %s", exc)
+
+    # 3. OpenRouter fallback
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY")
+    if openrouter_key:
+        try:
+            from openai import OpenAI
+            _client = OpenAI(
+                base_url="https://openrouter.ai/api/v1",
+                api_key=openrouter_key,
+                default_headers={
+                    "HTTP-Referer": "http://localhost:5001",
+                    "X-Title": "CampusPulse",
+                },
+            )
+            _MODEL = "openai/gpt-4o-mini"
+            _PROVIDER = "openrouter"
+            logger.info("AI provider: OpenRouter (%s)", _MODEL)
+            return _client
+        except Exception as exc:
+            logger.warning("OpenRouter init failed: %s", exc)
+
+    logger.warning("No AI API key found. AI features disabled.")
+    return None
+
+
+def get_provider_info() -> dict:
+    """Return current AI provider info for the /api/ai/status endpoint."""
+    _get_client()
+    return {
+        "provider": _PROVIDER or "none",
+        "model": _MODEL or "none",
+        "available": _client is not None,
+    }
 
 
 def _chat(messages: list[dict], *, temperature: float = 0.2, max_tokens: int = 512) -> str | None:
-    """Call OpenRouter and return the assistant text, or None on failure."""
+    """Call the configured LLM. Returns assistant text or None on failure."""
     client = _get_client()
     if client is None:
         return None
@@ -71,7 +135,7 @@ def _chat(messages: list[dict], *, temperature: float = 0.2, max_tokens: int = 5
         )
         return resp.choices[0].message.content.strip()
     except Exception as exc:
-        logger.warning("AI chat call failed: %s", exc)
+        logger.warning("AI chat call failed (%s): %s", _PROVIDER, exc)
         return None
 
 
