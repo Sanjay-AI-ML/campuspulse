@@ -1,256 +1,238 @@
-/* CampusPulse — shared presentational components — PS-4 edition.
-   Includes: Login, TopBar, badges, form controls, VoteBadge,
-   DuplicateWarningModal, AISummaryPanel, Toast, EmptyState. */
-
+/* CampusPulse — shared components */
 const { createElement: h, useState, useEffect, useRef } = React;
 
-/* ------------------------------------------------------------------ utils */
-
-const STATUS_STYLE = {
-  Reported:      { wrap: 'bg-danger-soft text-danger ring-1 ring-danger/30',   dot: 'bg-danger' },
-  'In Progress': { wrap: 'bg-amber-soft text-amber ring-1 ring-amber/30',      dot: 'bg-amber'  },
-  Resolved:      { wrap: 'bg-mint-soft text-mint ring-1 ring-mint/30',         dot: 'bg-mint'   },
+/* ── Constants ── */
+const STATUS_META = {
+  'Reported':    { dot: '#f06a6a', cls: 'badge-reported' },
+  'In Progress': { dot: '#f5b544', cls: 'badge-progress' },
+  'Resolved':    { dot: '#3ddc97', cls: 'badge-resolved' },
 };
-const PRIORITY_STYLE = {
-  High:   'bg-danger-soft text-danger ring-1 ring-danger/30',
-  Medium: 'bg-sky-500/10 text-sky-400 ring-1 ring-sky-500/30',
-  Low:    'bg-slate-500/10 text-slate-400 ring-1 ring-slate-500/30',
+const PRIORITY_META = {
+  High:   { cls: 'badge-high' },
+  Medium: { cls: 'badge-medium' },
+  Low:    { cls: 'badge-low' },
 };
 
 function timeAgo(iso) {
   const diff = Date.now() - new Date(iso).getTime();
   const s = Math.round(diff / 1000);
   if (s < 60) return 'just now';
-  const m = Math.round(s / 60);   if (m < 60) return `${m}m ago`;
-  const hr = Math.round(m / 60);  if (hr < 24) return `${hr}h ago`;
-  const d = Math.round(hr / 24);  if (d < 30)  return `${d}d ago`;
-  const mo = Math.round(d / 30);  if (mo < 12) return `${mo}mo ago`;
+  const m = Math.round(s / 60);  if (m < 60)  return `${m}m ago`;
+  const hr = Math.round(m / 60); if (hr < 24) return `${hr}h ago`;
+  const d = Math.round(hr / 24); if (d < 30)  return `${d}d ago`;
+  const mo = Math.round(d / 30); if (mo < 12) return `${mo}mo ago`;
   return `${Math.round(mo / 12)}y ago`;
 }
 
-/* ----------------------------------------------------------------- badges */
-
+/* ── Badges ── */
 function StatusBadge({ status }) {
-  const s = STATUS_STYLE[status] || STATUS_STYLE['Reported'];
-  return h('span', { className: `inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${s.wrap}` },
-    h('span', { className: `h-1.5 w-1.5 rounded-full ${s.dot}` }),
+  const m = STATUS_META[status] || STATUS_META['Reported'];
+  return h('span', { className: `badge ${m.cls}` },
+    h('span', { style: { width: 6, height: 6, borderRadius: '50%', background: m.dot, flexShrink: 0 } }),
     status);
 }
 
 function PriorityBadge({ priority }) {
-  const cls = PRIORITY_STYLE[priority] || PRIORITY_STYLE['Medium'];
-  return h('span', { className: `inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${cls}` },
-    priority === 'High' && h(Icon.Alert, { className: 'w-3 h-3' }),
+  const m = PRIORITY_META[priority] || PRIORITY_META['Medium'];
+  return h('span', { className: `badge ${m.cls}` },
+    priority === 'High' && h(Icon.Alert, { style: { width: 10, height: 10 } }),
     priority);
 }
 
-/* ------------------------------------------------------------------ VoteBadge */
-
+/* ── Vote button ── */
 function VoteBadge({ count, voted, onVote, disabled, loading }) {
   return h('button', {
     onClick: onVote,
     disabled: disabled || loading,
     title: disabled ? "Can't vote on your own issue" : voted ? 'Remove upvote' : 'Upvote this issue',
-    className: `inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all active:scale-95
-      ${voted
-        ? 'bg-mint-soft text-mint ring-1 ring-mint/40 shadow-glow'
-        : 'bg-navy-800/80 text-slate-400 hover:text-mint hover:bg-mint-soft hover:ring-1 hover:ring-mint/30'}
-      ${disabled || loading ? 'opacity-40 cursor-not-allowed' : 'cursor-pointer'}`,
+    className: `vote-btn${voted ? ' voted' : ''}`,
+    style: disabled || loading ? { opacity: 0.35, cursor: 'not-allowed' } : {},
   },
     loading
-      ? h('span', { className: 'cp-spinner w-3 h-3' })
-      : h(Icon.ArrowUp, { className: `w-3.5 h-3.5 ${voted ? 'stroke-[2.5]' : ''}` }),
+      ? h('span', { className: 'cp-spinner', style: { width: 12, height: 12 } })
+      : h(Icon.ArrowUp, { style: { width: 12, height: 12, flexShrink: 0 } }),
     h('span', null, count));
 }
 
-/* ------------------------------------------------------------------ form controls */
-
-function Field({ label, htmlFor, hint, error, children }) {
-  return h('div', null,
-    h('label', { htmlFor, className: 'mb-1.5 flex items-center justify-between text-sm font-medium text-slate-300' },
-      h('span', null, label),
-      hint && h('span', { className: 'text-xs font-normal text-slate-500' }, hint)),
+/* ── Form primitives ── */
+function Field({ label, hint, error, children }) {
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+    h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+      h('label', { style: { fontSize: 12.5, fontWeight: 500, color: 'rgba(255,255,255,0.6)', letterSpacing: '0.01em' } }, label),
+      hint && h('span', { style: { fontSize: 11, color: 'rgba(255,255,255,0.3)' } }, hint)),
     children,
-    error && h('p', { className: 'mt-1.5 text-xs text-danger' }, error));
+    error && h('p', { style: { fontSize: 11.5, color: '#f06a6a', marginTop: 2 } }, error));
 }
 
-const inputCls = 'w-full rounded-xl bg-navy-950/60 border border-navy-700 px-3.5 py-2.5 text-sm text-slate-100 placeholder-slate-500 transition focus:border-mint focus:ring-2 focus:ring-mint/30 focus:outline-none';
-
-function TextInput(props) {
-  return h('input', { ...props, className: `${inputCls} ${props.className || ''}` });
+function TextInput({ error, className, ...props }) {
+  return h('input', { ...props, className: `input-base${error ? ' border-danger' : ''} ${className || ''}` });
 }
-function TextArea(props) {
-  return h('textarea', { ...props, className: `${inputCls} resize-y min-h-[90px] ${props.className || ''}` });
+function TextArea({ error, className, ...props }) {
+  return h('textarea', { ...props, className: `input-base textarea${error ? ' border-danger' : ''} ${className || ''}` });
 }
-function Select({ children, ...props }) {
-  return h('select', {
-    ...props,
-    className: `${inputCls} appearance-none bg-no-repeat pr-9 ${props.className || ''}`,
-    style: { backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")", backgroundPosition: 'right 0.75rem center' },
-  }, children);
+function Select({ children, className, ...props }) {
+  return h('select', { ...props, className: `input-base select-input ${className || ''}` }, children);
 }
 
-function Button({ variant = 'primary', size = 'md', loading = false, disabled, children, className = '', ...rest }) {
-  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2.5 text-sm', lg: 'px-5 py-3 text-sm' };
-  const variants = {
-    primary: 'bg-mint text-navy-950 font-semibold hover:bg-mint-dark shadow-glow disabled:opacity-60',
-    ghost:   'bg-navy-800/60 text-slate-200 border border-navy-700 hover:bg-navy-700/60 hover:border-navy-600',
-    subtle:  'bg-transparent text-slate-300 hover:bg-navy-800/60',
-    danger:  'bg-danger/15 text-danger border border-danger/30 hover:bg-danger/25',
-    ai:      'bg-violet-500/15 text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 font-semibold',
-  };
-  return h('button', {
-    ...rest, disabled: disabled || loading,
-    className: `inline-flex items-center justify-center gap-2 rounded-xl transition active:scale-[.98] disabled:cursor-not-allowed ${sizes[size]} ${variants[variant]} ${className}`,
-  },
-    loading && h('span', { className: 'cp-spinner', 'aria-hidden': 'true' }),
-    children);
+/* ── EmptyState ── */
+function EmptyState({ icon: IconComp = Icon.Inbox, title, subtitle, action }) {
+  return h('div', { className: 'empty-state' },
+    h('div', { style: { width: 48, height: 48, borderRadius: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.25)' } },
+      h(IconComp, { style: { width: 22, height: 22 } })),
+    h('div', null,
+      h('p', { style: { fontSize: 14, fontWeight: 500, color: 'rgba(255,255,255,0.75)', marginBottom: 4 } }, title),
+      subtitle && h('p', { style: { fontSize: 12.5, color: 'rgba(255,255,255,0.3)', maxWidth: 320 } }, subtitle)),
+    action && h('div', null, action));
 }
 
-/* ------------------------------------------------------------------ empty + toast */
-
-function EmptyState({ icon: IconCmp = Icon.Inbox, title, subtitle, action }) {
-  return h('div', { className: 'flex flex-col items-center justify-center rounded-2xl border border-dashed border-navy-700 bg-navy-900/30 px-6 py-14 text-center' },
-    h('div', { className: 'mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-navy-800 text-slate-500' },
-      h(IconCmp, { className: 'w-7 h-7' })),
-    h('h3', { className: 'text-base font-semibold text-slate-200' }, title),
-    subtitle && h('p', { className: 'mt-1 max-w-sm text-sm text-slate-500' }, subtitle),
-    action && h('div', { className: 'mt-5' }, action));
-}
-
+/* ── Toast ── */
 function Toast({ toast }) {
   if (!toast) return null;
-  const tone = toast.type === 'error' ? 'border-danger/40 text-danger' : toast.type === 'ai' ? 'border-violet-500/40 text-violet-300' : 'border-mint/40 text-mint';
-  return h('div', { className: 'fixed bottom-5 left-1/2 z-50 -translate-x-1/2 px-4' },
-    h('div', { className: `animate-row-in flex items-center gap-2.5 rounded-xl border bg-navy-850 px-4 py-3 text-sm font-medium shadow-card ${tone}` },
-      toast.type === 'error' ? h(Icon.Alert, { className: 'w-4 h-4' })
-      : toast.type === 'ai' ? h(Icon.Robot, { className: 'w-4 h-4' })
-      : h(Icon.Check, { className: 'w-4 h-4' }),
-      h('span', { className: 'text-slate-100' }, toast.message)));
+  const colors = {
+    error: { icon: Icon.Alert,  color: '#f06a6a', border: 'rgba(240,106,106,0.3)' },
+    ai:    { icon: Icon.Robot,  color: '#a99ef9', border: 'rgba(139,124,248,0.3)' },
+    _:     { icon: Icon.Check,  color: '#3ddc97', border: 'rgba(61,220,151,0.3)'  },
+  };
+  const c = colors[toast.type] || colors['_'];
+  return h('div', { className: 'toast anim-slide-up' },
+    h('div', { className: 'toast-inner', style: { borderColor: c.border, color: c.color } },
+      h(c.icon, { style: { width: 15, height: 15, flexShrink: 0 } }),
+      h('span', { style: { color: 'rgba(255,255,255,0.9)' } }, toast.message)));
 }
 
-/* ------------------------------------------------------------------ DuplicateWarningModal */
-
+/* ── Duplicate Warning Modal ── */
 function DuplicateWarningModal({ similar, onContinue, onCancel }) {
-  return h('div', { className: 'fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4' },
-    h('div', { className: 'card w-full max-w-lg p-6 animate-row-in' },
-      h('div', { className: 'mb-4 flex items-start gap-3' },
-        h('span', { className: 'flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-soft text-amber mt-0.5' },
-          h(Icon.Alert, { className: 'w-5 h-5' })),
+  return h('div', {
+    style: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 },
+    className: 'anim-fade-in',
+  },
+    h('div', { className: 'card anim-scale-in', style: { width: '100%', maxWidth: 480, padding: 24 } },
+      // header
+      h('div', { style: { display: 'flex', gap: 12, marginBottom: 20 } },
+        h('div', { style: { width: 36, height: 36, borderRadius: 10, background: 'rgba(245,181,68,0.12)', border: '1px solid rgba(245,181,68,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f5b544', flexShrink: 0 } },
+          h(Icon.Alert, { style: { width: 18, height: 18 } })),
         h('div', null,
-          h('h3', { className: 'text-base font-semibold text-white' }, '⚡ Similar issues already exist'),
-          h('p', { className: 'mt-1 text-sm text-slate-400' },
-            'Our AI found these open issues that look similar to yours. Consider upvoting them instead of creating a duplicate — it helps prioritise faster.'))),
+          h('p', { style: { fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.9)', marginBottom: 3 } }, 'Similar issues already reported'),
+          h('p', { style: { fontSize: 12.5, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 } }, 'AI found these open issues matching yours. Upvote them instead to boost priority.'))),
 
-      h('div', { className: 'mb-5 space-y-2 max-h-60 overflow-y-auto' },
-        similar.map((i) => h('div', { key: i.id, className: 'rounded-xl border border-navy-700 bg-navy-950/60 p-3 flex items-start gap-3' },
-          h('span', { className: 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-navy-800 text-slate-400' },
-            h(Icon.CategoryIcon, { category: i.category, className: 'w-4 h-4' })),
-          h('div', { className: 'min-w-0 flex-1' },
-            h('div', { className: 'text-sm font-semibold text-slate-100 truncate' }, i.title),
-            h('div', { className: 'text-xs text-slate-500 mt-0.5 flex items-center gap-2' },
-              h('span', null, i.category),
-              h('span', null, '·'),
-              h('span', { className: 'flex items-center gap-1' }, h(Icon.ArrowUp, { className: 'w-3 h-3 text-mint' }), (i.votes || []).length, ' votes'),
-              h('span', null, '·'),
-              h(StatusBadge, { status: i.status })))))),
+      // issue list
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20, maxHeight: 240, overflowY: 'auto' } },
+        similar.map((i) => h('div', { key: i.id, style: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 9, padding: '10px 12px', display: 'flex', gap: 10, alignItems: 'flex-start' } },
+          h('div', { className: 'icon-box', style: { background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.4)', marginTop: 1 } },
+            h(Icon.CategoryIcon, { category: i.category, style: { width: 14, height: 14 } })),
+          h('div', { style: { flex: 1, minWidth: 0 } },
+            h('p', { style: { fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.85)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, i.title),
+            h('div', { style: { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' } },
+              h('span', { style: { fontSize: 11.5, color: 'rgba(255,255,255,0.35)' } }, i.category),
+              h(StatusBadge, { status: i.status }),
+              h('span', { style: { display: 'flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: '#3ddc97' } },
+                h(Icon.ArrowUp, { style: { width: 11, height: 11 } }), (i.votes || []).length, ' votes')))))),
 
-      h('div', { className: 'flex gap-2 justify-end' },
-        h(Button, { variant: 'ghost', onClick: onCancel }, 'Cancel'),
-        h(Button, { variant: 'subtle', onClick: onContinue }, 'Submit anyway'))));
+      // actions
+      h('div', { style: { display: 'flex', gap: 8, justifyContent: 'flex-end' } },
+        h('button', { onClick: onCancel, className: 'btn btn-ghost btn-sm' }, 'Cancel'),
+        h('button', { onClick: onContinue, className: 'btn btn-ghost btn-sm', style: { color: 'rgba(255,255,255,0.5)' } }, 'Submit anyway'))));
 }
 
-/* ------------------------------------------------------------------ AISummaryPanel */
-
+/* ── AI Summary Panel (admin) ── */
 function AISummaryPanel({ issueId }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
 
   async function load() {
-    if (data) { setOpen(true); return; }
+    if (data) { setOpen((o) => !o); return; }
     setLoading(true);
     try {
-      const result = await Api.ai.summarize(issueId);
-      setData(result);
-      setOpen(true);
-    } catch (e) {
-      setData({ summary: 'Could not load AI summary.', action: '', estimated_effort: '' });
-      setOpen(true);
-    } finally { setLoading(false); }
+      const r = await Api.ai.summarize(issueId);
+      setData(r); setOpen(true);
+    } catch { setData({ summary: 'Could not load.', action: '', estimated_effort: '' }); setOpen(true); }
+    finally { setLoading(false); }
   }
 
-  return h('div', { className: 'mt-3' },
-    h(Button, { variant: 'ai', size: 'sm', loading, onClick: load },
-      h(Icon.Robot, { className: 'w-3.5 h-3.5' }), loading ? 'Analyzing…' : 'AI Summary'),
+  return h('div', null,
+    h('button', { onClick: load, className: 'btn btn-ai btn-sm', style: { gap: 5 } },
+      loading ? h('span', { className: 'cp-spinner', style: { width: 12, height: 12 } }) : h(Icon.Robot, { style: { width: 12, height: 12 } }),
+      loading ? 'Analyzing…' : 'AI Summary'),
 
-    open && data && h('div', { className: 'mt-2 rounded-xl border border-violet-500/20 bg-violet-500/5 p-3 text-xs space-y-2' },
-      h('div', { className: 'flex items-center justify-between' },
-        h('span', { className: 'font-semibold text-violet-300 flex items-center gap-1.5' },
-          h(Icon.Robot, { className: 'w-3.5 h-3.5' }), 'AI Analysis'),
-        h('button', { onClick: () => setOpen(false), className: 'text-slate-500 hover:text-slate-300' },
-          h(Icon.X, { className: 'w-3.5 h-3.5' }))),
-      h('p', { className: 'text-slate-300' }, data.summary),
-      data.action && h('div', { className: 'flex items-start gap-2 rounded-lg bg-navy-900/60 p-2' },
-        h(Icon.Wrench, { className: 'w-3.5 h-3.5 text-amber mt-0.5 shrink-0' }),
-        h('span', { className: 'text-slate-300' }, h('b', { className: 'text-amber' }, 'Action: '), data.action)),
-      data.estimated_effort && h('span', { className: 'inline-flex items-center gap-1 rounded-md bg-navy-800 px-2 py-0.5 text-slate-400' },
-        h(Icon.Clock, { className: 'w-3 h-3' }), data.estimated_effort)));
+    open && data && h('div', { className: 'anim-slide-up', style: { marginTop: 8, padding: 12, background: 'rgba(139,124,248,0.07)', border: '1px solid rgba(139,124,248,0.18)', borderRadius: 9 } },
+      h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 } },
+        h('span', { style: { fontSize: 11, fontWeight: 600, color: '#a99ef9', display: 'flex', alignItems: 'center', gap: 4, letterSpacing: '0.05em', textTransform: 'uppercase' } },
+          h(Icon.Robot, { style: { width: 11, height: 11 } }), 'AI Analysis'),
+        h('button', { onClick: () => setOpen(false), style: { background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', padding: 0 } },
+          h(Icon.X, { style: { width: 13, height: 13 } }))),
+      h('p', { style: { fontSize: 12.5, color: 'rgba(255,255,255,0.65)', lineHeight: 1.6, marginBottom: data.action ? 8 : 0 } }, data.summary),
+      data.action && h('div', { style: { display: 'flex', gap: 7, padding: '7px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: 7, alignItems: 'flex-start' } },
+        h(Icon.Wrench, { style: { width: 12, height: 12, color: '#f5b544', marginTop: 2, flexShrink: 0 } }),
+        h('p', { style: { fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 } },
+          h('b', { style: { color: '#f5b544' } }, 'Action: '), data.action)),
+      data.estimated_effort && h('p', { style: { marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', gap: 4 } },
+        h(Icon.Clock, { style: { width: 11, height: 11 } }), data.estimated_effort)));
 }
 
-/* ------------------------------------------------------------------ TopBar */
-
+/* ── TopBar ── */
 function TopBar({ user, onLogout, tab, setTab, refresh, refreshing }) {
   const adminTabs = [
-    { id: 'board',     label: 'Issue Board', Icon: Icon.Dashboard },
-    { id: 'stats',     label: 'Stats',       Icon: Icon.TrendingUp },
-    { id: 'analytics', label: 'Analytics',   Icon: Icon.BarChart },
-    { id: 'assistant', label: 'AI Assistant', Icon: Icon.Robot },
+    { id: 'board',     label: 'Board',     Icon: Icon.Dashboard },
+    { id: 'analytics', label: 'Analytics', Icon: Icon.BarChart  },
+    { id: 'assistant', label: 'AI',        Icon: Icon.Robot     },
   ];
 
-  return h('header', { className: 'sticky top-0 z-30 border-b border-navy-800/80 bg-navy-950/80 backdrop-blur-xl' },
-    h('div', { className: 'mx-auto flex h-16 max-w-7xl items-center gap-3 px-4 sm:px-6' },
-      h('a', { href: '/', className: 'flex items-center gap-2.5 focus-ring rounded-lg' },
-        h('span', { className: 'flex h-9 w-9 items-center justify-center rounded-xl bg-mint text-navy-950 shadow-glow' },
-          h(Icon.Logo, { className: 'w-5 h-5' })),
-        h('span', { className: 'text-lg font-bold tracking-tight text-white' },
-          'Campus', h('span', { className: 'text-mint' }, 'Pulse'))),
+  return h('header', { style: { position: 'sticky', top: 0, zIndex: 100, borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(13,15,18,0.85)', backdropFilter: 'blur(16px)' } },
+    h('div', { style: { maxWidth: 1280, margin: '0 auto', padding: '0 20px', height: 56, display: 'flex', alignItems: 'center', gap: 8 } },
 
-      // AI badge
-      h('span', { className: 'hidden sm:inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold text-violet-300' },
-        h(Icon.Zap, { className: 'w-2.5 h-2.5' }), 'AI-Powered'),
+      // Logo
+      h('a', { href: '/', style: { display: 'flex', alignItems: 'center', gap: 9, textDecoration: 'none', flexShrink: 0 } },
+        h('div', { style: { width: 30, height: 30, borderRadius: 8, background: '#3ddc97', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 0 0 1px rgba(61,220,151,0.3), 0 2px 8px rgba(61,220,151,0.2)' } },
+          h(Icon.Logo, { style: { width: 17, height: 17, color: '#0d1117' } })),
+        h('span', { style: { fontSize: 15, fontWeight: 700, letterSpacing: '-0.03em', color: 'rgba(255,255,255,0.95)' } },
+          'Campus', h('span', { style: { color: '#3ddc97' } }, 'Pulse'))),
 
-      tab && h('nav', { className: 'ml-2 hidden items-center gap-1 sm:flex' },
+      // AI chip
+      h('span', { className: 'ai-chip', style: { marginLeft: 4 } },
+        h(Icon.Zap, { style: { width: 9, height: 9 } }), 'AI'),
+
+      // Admin tabs
+      tab && h('nav', { style: { display: 'flex', alignItems: 'center', gap: 2, marginLeft: 12, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 9, padding: 3 } },
         adminTabs.map(({ id, label, Icon: TIcon }) =>
           h('button', {
-            key: id,
-            onClick: () => setTab(id),
-            className: `rounded-lg px-3 py-1.5 text-sm font-medium transition focus-ring ${tab === id ? 'bg-navy-800 text-white' : 'text-slate-400 hover:text-slate-200'}`,
+            key: id, onClick: () => setTab(id),
+            className: 'focus-ring',
+            style: {
+              display: 'flex', alignItems: 'center', gap: 5,
+              padding: '5px 11px', borderRadius: 7, fontSize: 12.5, fontWeight: 500,
+              cursor: 'pointer', border: 'none', transition: 'all 0.15s',
+              background: tab === id ? 'rgba(255,255,255,0.1)' : 'transparent',
+              color: tab === id ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.4)',
+            },
           },
-            h('span', { className: 'inline-flex items-center gap-1.5' },
-              h(TIcon, { className: 'w-4 h-4' }), label)))),
+            h(TIcon, { style: { width: 13, height: 13 } }), label))),
 
-      h('div', { className: 'ml-auto flex items-center gap-2 sm:gap-3' },
-        refresh && h('button', {
-          onClick: refresh, title: 'Refresh', disabled: refreshing,
-          className: 'rounded-lg border border-navy-700 bg-navy-800/60 p-2 text-slate-300 transition hover:bg-navy-700 focus-ring disabled:opacity-50',
-        }, h(Icon.Clock, { className: `w-4 h-4 ${refreshing ? 'animate-spin' : ''}` })),
+      // Spacer
+      h('div', { style: { flex: 1 } }),
 
-        h('div', { className: 'hidden items-center gap-2.5 rounded-xl border border-navy-800 bg-navy-850 px-3 py-1.5 sm:flex' },
-          h('span', { className: 'flex h-7 w-7 items-center justify-center rounded-full bg-mint-soft text-mint font-semibold text-xs' },
-            user.name.split(' ').map((p) => p[0]).slice(0, 2).join('')),
-          h('div', { className: 'leading-tight' },
-            h('div', { className: 'text-sm font-semibold text-slate-100' }, user.name),
-            h('div', { className: 'text-[11px] text-slate-500' }, user.role))),
+      // Refresh
+      refresh && h('button', {
+        onClick: refresh, disabled: refreshing, title: 'Refresh',
+        className: 'btn btn-ghost btn-sm focus-ring',
+        style: { padding: '6px 10px' },
+      }, h(Icon.Clock, { style: { width: 14, height: 14, animation: refreshing ? 'spin 0.65s linear infinite' : 'none' } })),
 
-        h('button', {
-          onClick: onLogout, title: 'Log out',
-          className: 'inline-flex items-center gap-2 rounded-xl border border-navy-700 bg-navy-800/60 px-3 py-2 text-sm text-slate-300 transition hover:bg-navy-700 hover:text-white focus-ring',
-        }, h(Icon.Logout, { className: 'w-4 h-4' }), h('span', { className: 'hidden sm:inline' }, 'Logout')))));
+      // User pill
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '5px 10px 5px 6px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 9 } },
+        h('div', { style: { width: 26, height: 26, borderRadius: 7, background: 'rgba(61,220,151,0.15)', border: '1px solid rgba(61,220,151,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700, color: '#3ddc97', flexShrink: 0 } },
+          user.name.split(' ').map((p) => p[0]).slice(0, 2).join('')),
+        h('div', { style: { display: 'flex', flexDirection: 'column', lineHeight: 1.2 } },
+          h('span', { style: { fontSize: 12.5, fontWeight: 500, color: 'rgba(255,255,255,0.85)' } }, user.name.split(' ')[0]),
+          h('span', { style: { fontSize: 10.5, color: 'rgba(255,255,255,0.3)' } }, user.role))),
+
+      // Logout
+      h('button', { onClick: onLogout, className: 'btn btn-ghost btn-sm focus-ring', title: 'Logout', style: { padding: '6px 10px' } },
+        h(Icon.Logout, { style: { width: 14, height: 14 } }),
+        h('span', { style: { display: 'none' } }, 'Logout'))));  // hidden on mobile for space
 }
 
-/* ------------------------------------------------------------------ Login */
-
+/* ── Login ── */
 function Login({ onLoggedIn }) {
   const [username, setUsername] = useState('student');
   const [password, setPassword] = useState('student123');
@@ -262,11 +244,9 @@ function Login({ onLoggedIn }) {
     setLoading(true); setError('');
     try {
       const { user } = await Api.login(username.trim(), password);
-      Api.Session.set(user);
-      onLoggedIn(user);
-    } catch (err) {
-      setError(err.message || 'Login failed');
-    } finally { setLoading(false); }
+      Api.Session.set(user); onLoggedIn(user);
+    } catch (err) { setError(err.message || 'Login failed'); }
+    finally { setLoading(false); }
   }
 
   function fill(role) {
@@ -275,53 +255,62 @@ function Login({ onLoggedIn }) {
     setError('');
   }
 
-  return h('div', { className: 'flex min-h-screen items-center justify-center p-4' },
-    h('div', { className: 'w-full max-w-md' },
-      h('div', { className: 'mb-8 flex flex-col items-center text-center' },
-        h('div', { className: 'mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-mint text-navy-950 shadow-glow' },
-          h(Icon.Logo, { className: 'w-7 h-7' })),
-        h('h1', { className: 'text-2xl font-bold tracking-tight text-white' },
-          'Campus', h('span', { className: 'text-mint' }, 'Pulse')),
-        h('p', { className: 'mt-2 text-sm text-slate-400' }, 'FixIt — Smart Campus Issue Reporting & Tracking'),
-        h('div', { className: 'mt-2 inline-flex items-center gap-1.5 rounded-full border border-violet-500/30 bg-violet-500/10 px-3 py-1 text-xs font-medium text-violet-300' },
-          h(Icon.Zap, { className: 'w-3 h-3' }), 'AI-Powered · Agentic Duplicate Detection · Smart Priority')),
+  return h('div', { style: { minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 } },
+    h('div', { style: { width: '100%', maxWidth: 380 } },
 
-      h('div', { className: 'card p-6 sm:p-7' },
-        h('form', { onSubmit: submit, className: 'space-y-4' },
-          h(Field, { label: 'Username', htmlFor: 'username' },
-            h('div', { className: 'relative' },
-              h(Icon.User, { className: 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500' }),
-              h(TextInput, { id: 'username', value: username, onChange: (e) => setUsername(e.target.value), autoComplete: 'username', className: 'pl-9', placeholder: 'student' }))),
+      // Brand
+      h('div', { style: { textAlign: 'center', marginBottom: 32 } },
+        h('div', { style: { width: 52, height: 52, borderRadius: 14, background: '#3ddc97', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px', boxShadow: '0 0 0 1px rgba(61,220,151,0.35), 0 8px 24px rgba(61,220,151,0.2)' } },
+          h(Icon.Logo, { style: { width: 28, height: 28, color: '#0d1117' } })),
+        h('h1', { style: { fontSize: 24, fontWeight: 700, letterSpacing: '-0.04em', color: 'rgba(255,255,255,0.95)', marginBottom: 6 } },
+          'Campus', h('span', { style: { color: '#3ddc97' } }, 'Pulse')),
+        h('p', { style: { fontSize: 13, color: 'rgba(255,255,255,0.35)', marginBottom: 10 } }, 'PS-4 FixIt — Campus Issue Tracker'),
+        h('div', { style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+          h('span', { className: 'ai-chip' },
+            h(Icon.Zap, { style: { width: 9, height: 9 } }), 'AI-Powered'),
+          h('span', { className: 'ai-chip' },
+            h(Icon.Robot, { style: { width: 9, height: 9 } }), 'Groq LLM'))),
 
-          h(Field, { label: 'Password', htmlFor: 'password' },
-            h('div', { className: 'relative' },
-              h(Icon.Lock, { className: 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500' }),
-              h(TextInput, { id: 'password', type: 'password', value: password, onChange: (e) => setPassword(e.target.value), autoComplete: 'current-password', className: 'pl-9', placeholder: '••••••••' }))),
+      // Card
+      h('div', { className: 'card', style: { padding: 24 } },
+        h('form', { onSubmit: submit, style: { display: 'flex', flexDirection: 'column', gap: 16 } },
+          h(Field, { label: 'Username' },
+            h('div', { style: { position: 'relative' } },
+              h(Icon.User, { style: { position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: 'rgba(255,255,255,0.2)', pointerEvents: 'none' } }),
+              h(TextInput, { value: username, onChange: (e) => setUsername(e.target.value), autoComplete: 'username', placeholder: 'student', style: { paddingLeft: 34 } }))),
 
-          error && h('div', { className: 'flex items-center gap-2 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger' },
-            h(Icon.Alert, { className: 'w-4 h-4' }), error),
+          h(Field, { label: 'Password' },
+            h('div', { style: { position: 'relative' } },
+              h(Icon.Lock, { style: { position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', width: 15, height: 15, color: 'rgba(255,255,255,0.2)', pointerEvents: 'none' } }),
+              h(TextInput, { type: 'password', value: password, onChange: (e) => setPassword(e.target.value), autoComplete: 'current-password', placeholder: '••••••••', style: { paddingLeft: 34 } }))),
 
-          h(Button, { type: 'submit', loading, className: 'w-full', size: 'lg' }, loading ? 'Signing in…' : 'Sign in')),
+          error && h('div', { style: { display: 'flex', alignItems: 'center', gap: 7, padding: '9px 12px', background: 'rgba(240,106,106,0.1)', border: '1px solid rgba(240,106,106,0.2)', borderRadius: 8, fontSize: 13, color: '#f06a6a' } },
+            h(Icon.Alert, { style: { width: 14, height: 14, flexShrink: 0 } }), error),
 
-        h('div', { className: 'mt-6 border-t border-navy-700 pt-5' },
-          h('p', { className: 'mb-3 text-center text-xs font-medium uppercase tracking-wider text-slate-500' }, 'Demo accounts'),
-          h('div', { className: 'grid grid-cols-2 gap-2' },
-            h('button', { onClick: () => fill('student'), type: 'button', className: 'rounded-xl border border-navy-700 bg-navy-850 px-3 py-2.5 text-left transition hover:border-mint/40 hover:bg-navy-800 focus-ring' },
-              h('div', { className: 'text-sm font-semibold text-slate-100' }, 'Student'),
-              h('div', { className: 'text-[11px] text-slate-500' }, 'student / student123')),
-            h('button', { onClick: () => fill('admin'), type: 'button', className: 'rounded-xl border border-navy-700 bg-navy-850 px-3 py-2.5 text-left transition hover:border-mint/40 hover:bg-navy-800 focus-ring' },
-              h('div', { className: 'text-sm font-semibold text-slate-100' }, 'Admin'),
-              h('div', { className: 'text-[11px] text-slate-500' }, 'admin / admin123'))))),
+          h('button', { type: 'submit', disabled: loading, className: 'btn btn-primary btn-lg', style: { marginTop: 2 } },
+            loading && h('span', { className: 'cp-spinner', style: { width: 14, height: 14 } }),
+            loading ? 'Signing in…' : 'Sign in')),
 
-      h('p', { className: 'mt-6 text-center text-xs text-slate-600' },
-        'Hackathon prototype · Team 9 · PS-4 FixIt')));
+        // Demo accounts
+        h('div', { style: { marginTop: 20, paddingTop: 20, borderTop: '1px solid rgba(255,255,255,0.06)' } },
+          h('p', { style: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.25)', letterSpacing: '0.07em', textTransform: 'uppercase', textAlign: 'center', marginBottom: 10 } }, 'Demo accounts'),
+          h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 } },
+            ['student', 'admin'].map((role) =>
+              h('button', { key: role, type: 'button', onClick: () => fill(role),
+                style: { background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 9, padding: '9px 12px', textAlign: 'left', cursor: 'pointer', transition: 'all 0.15s' },
+                onMouseEnter: (e) => { e.currentTarget.style.borderColor = 'rgba(61,220,151,0.25)'; e.currentTarget.style.background = 'rgba(61,220,151,0.04)'; },
+                onMouseLeave: (e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'; e.currentTarget.style.background = 'rgba(255,255,255,0.03)'; },
+              },
+                h('p', { style: { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.8)', marginBottom: 2, textTransform: 'capitalize' } }, role),
+                h('p', { style: { fontSize: 11.5, color: 'rgba(255,255,255,0.28)' } }, `${role} / ${role}123`)))))),
+
+      h('p', { style: { textAlign: 'center', fontSize: 11.5, color: 'rgba(255,255,255,0.2)', marginTop: 20 } }, 'Team 9 · PS-4 FixIt · Hackathon prototype')));
 }
 
-// Expose
 window.components = {
-  STATUS_STYLE, PRIORITY_STYLE, timeAgo,
+  STATUS_META, PRIORITY_META, timeAgo,
   StatusBadge, PriorityBadge, VoteBadge,
-  Field, TextInput, TextArea, Select, Button,
+  Field, TextInput, TextArea, Select,
   EmptyState, Toast, TopBar, Login,
   DuplicateWarningModal, AISummaryPanel,
 };

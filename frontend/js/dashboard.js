@@ -1,77 +1,58 @@
-/* CampusPulse — dashboard views — PS-4 FixIt edition.
-   Components: ReportForm (with photo + AI category/priority),
-   StudentDashboard, IssueCard (with vote button),
-   StatCard/StatGrid, FilterBar, IssueTable, AdminDashboard,
-   AnalyticsDashboard, AdminAssistant. */
-
-const { createElement: h, useState, useEffect, useMemo, useRef, useCallback } = React;
+/* CampusPulse — dashboards */
+const { createElement: h, useState, useEffect, useMemo, useRef } = React;
 const { StatusBadge, PriorityBadge, VoteBadge, Field, TextInput, TextArea, Select,
-  Button, EmptyState, timeAgo, DuplicateWarningModal, AISummaryPanel } = window.components;
-
-/* --------------------------------------------------------------- category icon helper */
-function CategoryIcon({ category, className }) {
-  return h(Icon.CategoryIcon, { category, className });
-}
-
-/* --------------------------------------------------------------- ReportForm */
+  EmptyState, timeAgo, DuplicateWarningModal, AISummaryPanel } = window.components;
 
 const CATEGORIES = [
   'Electrical / Fan', 'Projector / AV', 'Wi-Fi / Network',
   'Plumbing', 'Furniture', 'Cleanliness', 'Safety / Security', 'Other',
 ];
 
+/* ── Category icon shorthand ── */
+function CatIcon({ category, style }) {
+  return h(Icon.CategoryIcon, { category, style });
+}
+
+/* ──────────────────────────── REPORT FORM ──────────────────────────── */
 function ReportForm({ onCreated, user }) {
   const [form, setForm] = useState({ title: '', description: '', category: CATEGORIES[0], location: '' });
   const [errors, setErrors] = useState({});
   const [loading, setLoading] = useState(false);
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
-
-  // AI state
   const [aiCategory, setAiCategory] = useState(null);
-  const [aiCategoryLoading, setAiCategoryLoading] = useState(false);
+  const [aiCatLoading, setAiCatLoading] = useState(false);
   const [aiPriority, setAiPriority] = useState(null);
-  const [aiPriorityLoading, setAiPriorityLoading] = useState(false);
-
-  // Duplicate detection
+  const [aiPrioLoading, setAiPrioLoading] = useState(false);
   const [similar, setSimilar] = useState([]);
   const [showDupeModal, setShowDupeModal] = useState(false);
   const [pendingSubmit, setPendingSubmit] = useState(null);
+  const aiTimeout = useRef(null);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
-  // AI: auto-suggest category when title+description filled
-  const aiCategoryTimeout = useRef(null);
+  // AI category suggestion debounced
   useEffect(() => {
-    if (!form.title || form.title.length < 8) return;
-    clearTimeout(aiCategoryTimeout.current);
-    aiCategoryTimeout.current = setTimeout(async () => {
-      setAiCategoryLoading(true);
+    if (form.title.length < 8) { setAiCategory(null); return; }
+    clearTimeout(aiTimeout.current);
+    aiTimeout.current = setTimeout(async () => {
+      setAiCatLoading(true);
       try {
-        const result = await Api.ai.suggestCategory(form.title, form.description);
-        if (result.category && result.category !== form.category) {
-          setAiCategory(result.category);
-        }
-      } catch (_) {}
-      finally { setAiCategoryLoading(false); }
-    }, 800);
-    return () => clearTimeout(aiCategoryTimeout.current);
+        const r = await Api.ai.suggestCategory(form.title, form.description);
+        if (r.category && r.category !== form.category) setAiCategory(r.category);
+        else setAiCategory(null);
+      } catch { setAiCategory(null); }
+      finally { setAiCatLoading(false); }
+    }, 900);
+    return () => clearTimeout(aiTimeout.current);
   }, [form.title, form.description]);
 
-  // AI: prioritize issue
   async function runAiPriority() {
     if (!form.title) return;
-    setAiPriorityLoading(true);
-    try {
-      const result = await Api.ai.prioritize(form.title, form.description, form.category);
-      setAiPriority(result);
-    } catch (_) {}
-    finally { setAiPriorityLoading(false); }
-  }
-
-  function acceptAiCategory() {
-    set('category', aiCategory);
-    setAiCategory(null);
+    setAiPrioLoading(true);
+    try { const r = await Api.ai.prioritize(form.title, form.description, form.category); setAiPriority(r); }
+    catch { }
+    finally { setAiPrioLoading(false); }
   }
 
   function handlePhoto(e) {
@@ -85,11 +66,10 @@ function ReportForm({ onCreated, user }) {
 
   function validate() {
     const e = {};
-    if (!form.title.trim()) e.title = 'Please add a short title';
+    if (!form.title.trim()) e.title = 'Add a short title';
     if (!form.description.trim()) e.description = 'Describe the issue';
-    if (!form.category) e.category = 'Pick a category';
     setErrors(e);
-    return Object.keys(e).length === 0;
+    return !Object.keys(e).length;
   }
 
   async function doSubmit(payload, photo) {
@@ -98,130 +78,109 @@ function ReportForm({ onCreated, user }) {
       const result = await Api.createIssue(payload, photo || null);
       setForm({ title: '', description: '', category: CATEGORIES[0], location: '' });
       setPhotoFile(null); setPhotoPreview(null);
-      setAiPriority(null); setAiCategory(null);
-      setSimilar([]);
+      setAiPriority(null); setAiCategory(null); setSimilar([]);
       onCreated(result.issue);
-    } catch (err) {
-      setErrors({ form: err.message });
-    } finally { setLoading(false); }
+    } catch (err) { setErrors({ form: err.message }); }
+    finally { setLoading(false); }
   }
 
-  async function submit(ev) {
-    ev.preventDefault();
+  async function submit(e) {
+    e.preventDefault();
     if (!validate()) return;
-
-    const payload = {
-      title: form.title,
-      description: form.description,
-      category: form.category,
-      location: form.location,
-      ai_priority: aiPriority?.priority || null,
-      ai_priority_reason: aiPriority?.reason || '',
-    };
-
-    // Check duplicates before submitting
+    const payload = { title: form.title, description: form.description, category: form.category, location: form.location, ai_priority: aiPriority?.priority || null, ai_priority_reason: aiPriority?.reason || '' };
     try {
       const { similar: dupes } = await Api.ai.duplicates(form.title, form.description, form.category);
-      if (dupes && dupes.length > 0) {
-        setSimilar(dupes);
-        setPendingSubmit({ payload, photo: photoFile });
-        setShowDupeModal(true);
-        return;
-      }
-    } catch (_) {}
-
+      if (dupes?.length) { setSimilar(dupes); setPendingSubmit({ payload, photo: photoFile }); setShowDupeModal(true); return; }
+    } catch { }
     doSubmit(payload, photoFile);
   }
 
   const willBeHigh = form.category === 'Safety / Security' || form.category === 'Electrical / Fan';
 
-  return h('form', { onSubmit: submit, className: 'card p-5 sm:p-6' },
-    // header
-    h('div', { className: 'mb-5 flex items-center gap-2' },
-      h('span', { className: 'flex h-8 w-8 items-center justify-center rounded-lg bg-mint-soft text-mint' },
-        h(Icon.Plus, { className: 'w-4 h-4' })),
+  return h('div', { className: 'card', style: { padding: 20 } },
+    // Header
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 } },
+      h('div', { className: 'icon-box', style: { background: 'rgba(61,220,151,0.1)', border: '1px solid rgba(61,220,151,0.2)', color: '#3ddc97' } },
+        h(Icon.Plus, { style: { width: 15, height: 15 } })),
       h('div', null,
-        h('h2', { className: 'text-base font-semibold text-white' }, 'Report a new issue'),
-        h('p', { className: 'text-xs text-slate-500' }, 'AI-assisted categorization & priority'))),
+        h('p', { style: { fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.9)' } }, 'Report an issue'),
+        h('p', { style: { fontSize: 11.5, color: 'rgba(255,255,255,0.3)', marginTop: 1 } }, 'AI-assisted categorisation & priority'))),
 
-    h('div', { className: 'space-y-4' },
-      // title
-      h(Field, { label: 'Title', htmlFor: 'title', error: errors.title },
-        h(TextInput, { id: 'title', value: form.title, onChange: (e) => set('title', e.target.value),
-          placeholder: 'e.g. "Fan not working in CSE Lab 301"' })),
+    h('form', { onSubmit: submit, style: { display: 'flex', flexDirection: 'column', gap: 14 } },
+      // Title
+      h(Field, { label: 'Title', error: errors.title },
+        h(TextInput, { value: form.title, onChange: (e) => set('title', e.target.value),
+          placeholder: 'e.g. Fan not working in CSE Lab 301', error: errors.title })),
 
-      // category with AI suggestion
-      h(Field, { label: 'Category', htmlFor: 'category', error: errors.category },
-        h('div', { className: 'space-y-1.5' },
-          h(Select, { id: 'category', value: form.category, onChange: (e) => set('category', e.target.value) },
-            CATEGORIES.map((c) => h('option', { key: c, value: c }, c))),
-          aiCategoryLoading && h('div', { className: 'flex items-center gap-1.5 text-xs text-violet-400' },
-            h('span', { className: 'cp-spinner' }), 'AI analyzing…'),
-          aiCategory && aiCategory !== form.category && h('div', { className: 'flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/10 px-3 py-2 text-xs' },
-            h(Icon.Robot, { className: 'w-3.5 h-3.5 text-violet-400' }),
-            h('span', { className: 'text-violet-300' }, 'AI suggests: ', h('b', null, aiCategory)),
-            h('button', { type: 'button', onClick: acceptAiCategory, className: 'ml-auto rounded-md bg-violet-500/20 px-2 py-0.5 text-violet-300 hover:bg-violet-500/30 font-medium' }, 'Accept')))),
+      // Category + AI suggestion
+      h(Field, { label: 'Category' },
+        h(Select, { value: form.category, onChange: (e) => set('category', e.target.value) },
+          CATEGORIES.map((c) => h('option', { key: c, value: c }, c))),
+        // AI suggestion chip
+        aiCatLoading && h('div', { style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 6, fontSize: 11.5, color: 'rgba(139,124,248,0.7)' } },
+          h('span', { className: 'cp-spinner', style: { width: 11, height: 11 } }), 'AI analyzing…'),
+        aiCategory && aiCategory !== form.category && h('div', { style: { marginTop: 6, display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: 'rgba(139,124,248,0.08)', border: '1px solid rgba(139,124,248,0.2)', borderRadius: 8 } },
+          h(Icon.Robot, { style: { width: 13, height: 13, color: '#a99ef9', flexShrink: 0 } }),
+          h('span', { style: { fontSize: 12, color: 'rgba(255,255,255,0.55)', flex: 1 } }, 'AI suggests: ', h('b', { style: { color: '#a99ef9' } }, aiCategory)),
+          h('button', { type: 'button', onClick: () => { set('category', aiCategory); setAiCategory(null); },
+            style: { fontSize: 11, fontWeight: 600, color: '#a99ef9', background: 'rgba(139,124,248,0.15)', border: 'none', borderRadius: 5, padding: '2px 8px', cursor: 'pointer' } },
+            'Accept'))),
 
-      // description
-      h(Field, { label: 'Description', htmlFor: 'description', error: errors.description },
-        h(TextArea, { id: 'description', value: form.description, onChange: (e) => set('description', e.target.value),
-          placeholder: 'What happened? When did it start? How many people are affected?' })),
+      // Description
+      h(Field, { label: 'Description', error: errors.description },
+        h(TextArea, { value: form.description, onChange: (e) => set('description', e.target.value),
+          placeholder: 'What happened? When? How many people affected?', error: errors.description })),
 
-      // location
-      h(Field, { label: 'Location', htmlFor: 'location', hint: 'optional' },
-        h(TextInput, { id: 'location', value: form.location, onChange: (e) => set('location', e.target.value),
+      // Location
+      h(Field, { label: 'Location', hint: 'optional' },
+        h(TextInput, { value: form.location, onChange: (e) => set('location', e.target.value),
           placeholder: 'e.g. CSE Block, Room 301' })),
 
-      // photo upload
+      // Photo
       h(Field, { label: 'Photo', hint: 'optional' },
-        h('div', { className: 'space-y-2' },
-          photoPreview
-            ? h('div', { className: 'relative' },
-                h('img', { src: photoPreview, alt: 'Preview', className: 'photo-preview' }),
-                h('button', { type: 'button', onClick: () => { setPhotoFile(null); setPhotoPreview(null); },
-                  className: 'absolute top-2 right-2 flex h-7 w-7 items-center justify-center rounded-full bg-navy-900/80 text-slate-300 hover:text-danger' },
-                  h(Icon.X, { className: 'w-3.5 h-3.5' })))
-            : h('label', { className: 'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-navy-700 py-6 text-slate-500 transition hover:border-navy-600 hover:text-slate-400' },
-                h(Icon.Camera, { className: 'w-6 h-6' }),
-                h('span', { className: 'text-xs' }, 'Click to attach a photo'),
-                h('input', { type: 'file', accept: 'image/*', className: 'hidden', onChange: handlePhoto })))),
+        photoPreview
+          ? h('div', { style: { position: 'relative' } },
+              h('img', { src: photoPreview, alt: 'Preview', className: 'photo-preview' }),
+              h('button', { type: 'button', onClick: () => { setPhotoFile(null); setPhotoPreview(null); },
+                style: { position: 'absolute', top: 8, right: 8, width: 26, height: 26, borderRadius: '50%', background: 'rgba(13,15,18,0.85)', border: '1px solid rgba(255,255,255,0.15)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'rgba(255,255,255,0.6)' } },
+                h(Icon.X, { style: { width: 13, height: 13 } })))
+          : h('label', { className: 'photo-zone' },
+              h(Icon.Camera, { style: { width: 22, height: 22, color: 'rgba(255,255,255,0.2)' } }),
+              h('span', { style: { fontSize: 12, color: 'rgba(255,255,255,0.3)' } }, 'Click to attach a photo'),
+              h('span', { style: { fontSize: 11, color: 'rgba(255,255,255,0.18)' } }, 'JPG, PNG, GIF'),
+              h('input', { type: 'file', accept: 'image/*', style: { display: 'none' }, onChange: handlePhoto }))),
 
-      // AI priority
-      h('div', { className: 'flex items-start gap-2' },
-        h(Button, { type: 'button', variant: 'ai', size: 'sm', loading: aiPriorityLoading,
-          onClick: runAiPriority, disabled: !form.title },
-          h(Icon.Zap, { className: 'w-3.5 h-3.5' }), 'AI Priority Check'),
-        aiPriority && h('div', { className: 'flex-1 rounded-lg border border-violet-500/20 bg-violet-500/5 px-3 py-2 text-xs' },
-          h('span', { className: `font-semibold ${aiPriority.priority === 'High' ? 'text-danger' : aiPriority.priority === 'Low' ? 'text-slate-400' : 'text-sky-400'}` },
-            aiPriority.priority, ' Priority'),
-          h('span', { className: 'text-slate-400 ml-2' }, aiPriority.reason))),
+      // AI priority row
+      h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 10 } },
+        h('button', { type: 'button', className: 'btn btn-ai btn-sm', disabled: !form.title || aiPrioLoading, onClick: runAiPriority, style: { flexShrink: 0 } },
+          aiPrioLoading ? h('span', { className: 'cp-spinner', style: { width: 12, height: 12 } }) : h(Icon.Zap, { style: { width: 12, height: 12 } }),
+          aiPrioLoading ? 'Checking…' : 'AI Priority'),
+        aiPriority && h('div', { style: { flex: 1, padding: '6px 10px', background: 'rgba(139,124,248,0.06)', border: '1px solid rgba(139,124,248,0.15)', borderRadius: 7 } },
+          h('span', { style: { fontSize: 12, fontWeight: 600, color: aiPriority.priority === 'High' ? '#f06a6a' : aiPriority.priority === 'Low' ? '#94a3b8' : '#38bdf8' } },
+            aiPriority.priority, ' Priority '),
+          h('span', { style: { fontSize: 11.5, color: 'rgba(255,255,255,0.4)' } }, aiPriority.reason))),
 
-      // high-priority warning banner
-      h('div', { className: `flex items-center gap-2 rounded-xl border px-3 py-2.5 text-xs ${willBeHigh ? 'border-danger/30 bg-danger-soft text-danger' : 'border-navy-700 bg-navy-950/40 text-slate-400'}` },
-        h(Icon.Alert, { className: 'w-4 h-4' }),
-        willBeHigh
-          ? h('span', null, 'This will be flagged ', h('b', null, 'High priority'), ' and pinned to the top.')
-          : h('span', null, 'Standard priority — adjust with AI Priority Check above.')),
+      // Priority notice
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '9px 12px', background: willBeHigh ? 'rgba(240,106,106,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${willBeHigh ? 'rgba(240,106,106,0.2)' : 'rgba(255,255,255,0.07)'}`, borderRadius: 8 } },
+        h(Icon.Alert, { style: { width: 13, height: 13, color: willBeHigh ? '#f06a6a' : 'rgba(255,255,255,0.25)', flexShrink: 0 } }),
+        h('span', { style: { fontSize: 12, color: willBeHigh ? '#f06a6a' : 'rgba(255,255,255,0.35)' } },
+          willBeHigh ? h('span', null, 'Will be flagged ', h('b', null, 'High priority'), ' — pinned to top of queue.') : 'Standard priority.')),
 
-      errors.form && h('p', { className: 'text-sm text-danger' }, errors.form),
+      errors.form && h('p', { style: { fontSize: 12, color: '#f06a6a' } }, errors.form),
 
-      h('div', { className: 'flex justify-end gap-2 pt-1' },
-        h(Button, { type: 'submit', loading }, loading ? 'Submitting…' : 'Submit report'))),
+      // Submit
+      h('button', { type: 'submit', disabled: loading, className: 'btn btn-primary btn-md', style: { alignSelf: 'flex-end' } },
+        loading && h('span', { className: 'cp-spinner', style: { width: 13, height: 13 } }),
+        loading ? 'Submitting…' : 'Submit report')),
 
-    // Duplicate warning modal
     showDupeModal && h(DuplicateWarningModal, {
-      similar,
-      onCancel: () => { setShowDupeModal(false); setPendingSubmit(null); },
-      onContinue: () => {
-        setShowDupeModal(false);
-        if (pendingSubmit) doSubmit(pendingSubmit.payload, pendingSubmit.photo);
-      },
+      similar, onCancel: () => { setShowDupeModal(false); setPendingSubmit(null); },
+      onContinue: () => { setShowDupeModal(false); if (pendingSubmit) doSubmit(pendingSubmit.payload, pendingSubmit.photo); },
     }));
 }
 
-/* --------------------------------------------------------------- IssueCard */
-
-function IssueCard({ issue, user, onVote, admin }) {
+/* ──────────────────────────── ISSUE CARD (Student) ──────────────────────────── */
+function IssueCard({ issue, user, onVote }) {
   const [voteLoading, setVoteLoading] = useState(false);
   const high = issue.priority === 'High';
   const voteCount = (issue.votes || []).length;
@@ -231,42 +190,50 @@ function IssueCard({ issue, user, onVote, admin }) {
   async function handleVote() {
     if (!onVote) return;
     setVoteLoading(true);
-    try { await onVote(issue.id); }
-    finally { setVoteLoading(false); }
+    try { await onVote(issue.id); } finally { setVoteLoading(false); }
   }
 
-  return h('div', { 'data-issue-id': issue.id,
-    className: `animate-row-in rounded-xl border bg-navy-900/40 p-4 transition hover:bg-navy-850 ${high ? 'border-l-4 border-l-danger border-y-navy-700 border-r-navy-700' : 'border-navy-700/70'}` },
-    h('div', { className: 'flex items-start gap-3' },
-      h('span', { className: `mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${high ? 'bg-danger-soft text-danger' : 'bg-navy-800 text-slate-300'}` },
-        h(CategoryIcon, { category: issue.category, className: 'w-4 h-4' })),
-      h('div', { className: 'min-w-0 flex-1' },
-        h('div', { className: 'flex flex-wrap items-center gap-x-2 gap-y-1' },
-          h('h3', { className: 'truncate text-sm font-semibold text-slate-100' }, issue.title),
-          high && h(PriorityBadge, { priority: issue.priority })),
-        h('p', { className: 'mt-1 line-clamp-2 text-xs text-slate-400' }, issue.description),
-        h('div', { className: 'mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500' },
-          h('span', { className: 'inline-flex items-center gap-1' }, h(Icon.Pin, { className: 'w-3 h-3' }), issue.location || 'No location'),
-          h('span', { className: 'inline-flex items-center gap-1' }, h(Icon.Clock, { className: 'w-3 h-3' }), timeAgo(issue.createdAt)),
-          h('span', { className: 'rounded-md bg-navy-800 px-1.5 py-0.5 text-slate-400' }, issue.category),
-          issue.photo && h('span', { className: 'inline-flex items-center gap-1 text-sky-400' }, h(Icon.Image, { className: 'w-3 h-3' }), 'Photo')),
-        // AI priority reason
-        issue.ai_priority_reason && h('div', { className: 'mt-2 flex items-start gap-1.5 text-[11px] text-violet-400' },
-          h(Icon.Robot, { className: 'w-3 h-3 mt-0.5 shrink-0' }),
-          h('span', null, issue.ai_priority_reason)),
-        // Admin AI summary
-        admin && h(AISummaryPanel, { issueId: issue.id })),
+  return h('div', {
+    className: 'anim-slide-up',
+    style: {
+      background: 'rgba(255,255,255,0.03)', borderRadius: 10,
+      border: high ? '1px solid rgba(240,106,106,0.25)' : '1px solid rgba(255,255,255,0.07)',
+      borderLeft: high ? '3px solid #f06a6a' : undefined,
+      padding: 14, display: 'flex', gap: 12,
+    },
+  },
+    // Icon
+    h('div', { className: 'icon-box', style: { background: high ? 'rgba(240,106,106,0.1)' : 'rgba(255,255,255,0.04)', color: high ? '#f06a6a' : 'rgba(255,255,255,0.35)', alignSelf: 'flex-start', marginTop: 1 } },
+      h(CatIcon, { category: issue.category, style: { width: 14, height: 14 } })),
 
-      h('div', { className: 'flex shrink-0 flex-col items-end gap-2' },
-        h(StatusBadge, { status: issue.status }),
-        h(VoteBadge, { count: voteCount, voted, loading: voteLoading, disabled: isOwn || !onVote, onVote: handleVote }),
-        issue.photo && h('a', { href: `/uploads/${issue.photo}`, target: '_blank', rel: 'noopener',
-          className: 'flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 transition' },
-          h(Icon.Image, { className: 'w-3 h-3' }), 'View photo'))));
+    // Body
+    h('div', { style: { flex: 1, minWidth: 0 } },
+      h('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 5 } },
+        h('p', { style: { fontSize: 13.5, fontWeight: 600, color: 'rgba(255,255,255,0.9)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 } }, issue.title),
+        h('div', { style: { display: 'flex', gap: 5, flexShrink: 0, alignItems: 'center' } },
+          high && h(PriorityBadge, { priority: 'High' }),
+          h(StatusBadge, { status: issue.status }))),
+
+      h('p', { className: 'truncate-2', style: { fontSize: 12.5, color: 'rgba(255,255,255,0.4)', lineHeight: 1.5, marginBottom: 10 } }, issue.description),
+
+      h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 } },
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' } },
+          h('span', { style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'rgba(255,255,255,0.3)' } },
+            h(Icon.Pin, { style: { width: 11, height: 11 } }), issue.location || 'No location'),
+          h('span', { style: { display: 'flex', alignItems: 'center', gap: 4, fontSize: 11.5, color: 'rgba(255,255,255,0.3)' } },
+            h(Icon.Clock, { style: { width: 11, height: 11 } }), timeAgo(issue.createdAt)),
+          h('span', { style: { fontSize: 11, color: 'rgba(255,255,255,0.25)', background: 'rgba(255,255,255,0.05)', padding: '2px 7px', borderRadius: 5 } }, issue.category),
+          issue.photo && h('a', { href: `/uploads/${issue.photo}`, target: '_blank', rel: 'noopener',
+            style: { display: 'flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: '#38bdf8', textDecoration: 'none' } },
+            h(Icon.Image, { style: { width: 11, height: 11 } }), 'Photo')),
+        h(VoteBadge, { count: voteCount, voted, loading: voteLoading, disabled: isOwn || !onVote, onVote: handleVote }))),
+
+    // AI priority reason
+    issue.ai_priority_reason && h('p', { style: { marginTop: 6, fontSize: 11, color: 'rgba(139,124,248,0.6)', display: 'flex', alignItems: 'center', gap: 4, gridColumn: '1/-1' } },
+      h(Icon.Robot, { style: { width: 10, height: 10 } }), issue.ai_priority_reason));
 }
 
-/* --------------------------------------------------------------- StudentDashboard */
-
+/* ──────────────────────────── STUDENT DASHBOARD ──────────────────────────── */
 function StudentDashboard({ user, onToast }) {
   const [issues, setIssues] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -288,147 +255,198 @@ function StudentDashboard({ user, onToast }) {
 
   const created = (issue) => {
     setIssues((prev) => prev ? [issue, ...prev] : [issue]);
-    onToast({ message: 'Report submitted successfully!' });
+    onToast({ message: 'Issue submitted successfully!' });
   };
 
-  return h('div', { className: 'mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8' },
-    h('div', { className: 'mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between' },
+  return h('div', { style: { maxWidth: 1280, margin: '0 auto', padding: '28px 20px' } },
+    // Page header
+    h('div', { style: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 } },
       h('div', null,
-        h('h1', { className: 'text-xl font-bold text-white sm:text-2xl' }, `Hi ${user.name.split(' ')[0]} 👋`),
-        h('p', { className: 'mt-1 text-sm text-slate-400' }, 'Report campus issues and track them to resolution.')),
-      h('button', { onClick: load, disabled: refreshing,
-        className: 'inline-flex items-center gap-2 self-start rounded-xl border border-navy-700 bg-navy-800/60 px-3 py-2 text-sm text-slate-300 transition hover:bg-navy-700 focus-ring disabled:opacity-50' },
-        h(Icon.Clock, { className: `w-4 h-4 ${refreshing ? 'animate-spin' : ''}` }), 'Refresh')),
+        h('h1', { style: { fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: 'rgba(255,255,255,0.95)', marginBottom: 4 } }, `Hi ${user.name.split(' ')[0]} 👋`),
+        h('p', { style: { fontSize: 13, color: 'rgba(255,255,255,0.35)' } }, 'Report campus issues and track them to resolution.')),
+      h('button', { onClick: load, disabled: refreshing, className: 'btn btn-ghost btn-sm' },
+        h(Icon.Clock, { style: { width: 13, height: 13, animation: refreshing ? 'spin 0.65s linear infinite' : 'none' } }), 'Refresh')),
 
-    h('div', { className: 'grid gap-6 lg:grid-cols-5' },
-      h('div', { className: 'lg:col-span-2' }, h(ReportForm, { onCreated: created, user })),
-      h('div', { className: 'lg:col-span-3' },
-        h('div', { className: 'mb-3 flex items-center justify-between' },
-          h('h2', { className: 'text-base font-semibold text-white' }, 'Your reports'),
-          issues && h('span', { className: 'text-xs text-slate-500' }, `${issues.length} ${issues.length === 1 ? 'issue' : 'issues'}`)),
+    // Layout
+    h('div', { className: 'sidebar-layout' },
+      // Left — form
+      h('div', null, h(ReportForm, { onCreated: created, user })),
+
+      // Right — list
+      h('div', null,
+        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 } },
+          h('h2', { style: { fontSize: 13.5, fontWeight: 600, color: 'rgba(255,255,255,0.75)' } }, 'Your reports'),
+          issues && h('span', { style: { fontSize: 12, color: 'rgba(255,255,255,0.3)' } }, `${issues.length} issue${issues.length !== 1 ? 's' : ''}`)),
+
         issues === null
-          ? h('div', { className: 'card p-8 text-center text-sm text-slate-500' }, h('span', { className: 'cp-spinner text-mint' }), ' Loading…')
+          ? h('div', { className: 'card', style: { padding: 40, display: 'flex', justifyContent: 'center', color: 'rgba(255,255,255,0.3)' } },
+              h('span', { className: 'cp-spinner', style: { width: 20, height: 20 } }))
           : issues.length === 0
-            ? h(EmptyState, { icon: Icon.Inbox, title: 'No issues reported yet', subtitle: 'Use the form to report your first campus issue.' })
-            : h('div', { className: 'space-y-3' },
+            ? h(EmptyState, { icon: Icon.Inbox, title: 'No issues yet', subtitle: 'Use the form to report your first campus issue.' })
+            : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
                 issues.map((i) => h(IssueCard, { key: i.id, issue: i, user, onVote: handleVote }))))));
 }
 
-/* --------------------------------------------------------------- stat cards */
-
-function StatCard({ label, value, tone = 'default', icon: IconCmp }) {
-  const tones = { default: 'text-slate-200', reported: 'text-danger', progress: 'text-amber', resolved: 'text-mint' };
-  return h('div', { className: 'card p-4 sm:p-5' },
-    h('div', { className: 'flex items-center justify-between' },
-      h('span', { className: 'text-xs font-medium uppercase tracking-wider text-slate-500' }, label),
-      IconCmp && h(IconCmp, { className: 'w-4 h-4 text-slate-500' })),
-    h('div', { className: `mt-2 text-2xl font-bold sm:text-3xl ${tones[tone]}` }, value ?? '—'));
-}
-
+/* ──────────────────────────── STAT CARDS ──────────────────────────── */
 function StatGrid({ stats }) {
-  if (!stats) return h('div', { className: 'grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4' },
-    [0,1,2,3].map((i) => h('div', { key: i, className: 'card h-[88px] animate-pulse bg-navy-900/50' })));
-  return h('div', { className: 'grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4' },
-    h(StatCard, { label: 'Total', value: stats.total, icon: Icon.Inbox }),
-    h(StatCard, { label: 'Reported', value: stats.Reported, tone: 'reported', icon: Icon.Alert }),
-    h(StatCard, { label: 'In Progress', value: stats['In Progress'], tone: 'progress', icon: Icon.Clock }),
-    h(StatCard, { label: 'Resolved', value: stats.Resolved, tone: 'resolved', icon: Icon.Check }));
+  const cards = [
+    { label: 'Total',       value: stats?.total,           color: 'rgba(255,255,255,0.75)', icon: Icon.Inbox     },
+    { label: 'Reported',    value: stats?.['Reported'],    color: '#f06a6a',                icon: Icon.Alert     },
+    { label: 'In Progress', value: stats?.['In Progress'], color: '#f5b544',                icon: Icon.Clock     },
+    { label: 'Resolved',    value: stats?.['Resolved'],    color: '#3ddc97',                icon: Icon.Check     },
+  ];
+  return h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 } },
+    cards.map(({ label, value, color, icon: Ic }) =>
+      h('div', { key: label, className: 'card', style: { padding: '14px 16px' } },
+        h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 } },
+          h('span', { style: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.06em', textTransform: 'uppercase' } }, label),
+          h(Ic, { style: { width: 14, height: 14, color: 'rgba(255,255,255,0.2)' } })),
+        h('span', { style: { fontSize: 28, fontWeight: 700, letterSpacing: '-0.04em', color: stats ? color : 'rgba(255,255,255,0.1)' } },
+          stats ? (value ?? 0) : h('span', { style: { display: 'inline-block', width: 40, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.06)', animation: 'spin 1s linear infinite' } })))));
 }
 
-/* --------------------------------------------------------------- FilterBar */
-
-function FilterBar({ filters, setFilters, counts }) {
-  const set = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
-  const Sel = (value, key, opts, label) => h('div', { className: 'relative' },
-    h(Select, { value, onChange: (e) => set(key, e.target.value), className: 'py-2 text-xs', 'aria-label': label },
-      h('option', { value: '' }, `${label} (${counts?.total ?? ''})`),
-      opts.map(([v, l]) => h('option', { key: v, value: v }, l))));
-
-  return h('div', { className: 'card flex flex-wrap items-center gap-2 p-3' },
-    h('span', { className: 'mr-1 hidden items-center gap-1.5 text-xs font-medium text-slate-400 sm:flex' },
-      h(Icon.Filter, { className: 'w-4 h-4' }), 'Filters'),
-    Sel(filters.category, 'category',
-      ['Electrical / Fan','Projector / AV','Wi-Fi / Network','Plumbing','Furniture','Cleanliness','Safety / Security','Other'].map((c) => [c, c]),
-      'Category'),
-    Sel(filters.status, 'status', window.STATUS_LIST.map((s) => [s, s]), 'Status'),
-    Sel(filters.priority, 'priority', [['High','High'],['Medium','Medium'],['Low','Low']], 'Priority'),
-    h('div', { className: 'relative ml-auto w-full sm:w-56' },
-      h(Icon.Search, { className: 'pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500' }),
-      h(TextInput, { value: filters.q, onChange: (e) => set('q', e.target.value),
-        placeholder: 'Search title, location…', className: 'py-2 pl-9 text-xs' })));
-}
-
-/* --------------------------------------------------------------- StatusSelect */
-
-function StatusSelect({ value, onChange, compact }) {
+/* ──────────────────────────── STATUS SELECT (inline dropdown) ──────────────────────────── */
+function StatusSelect({ value, onChange }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
+  const { STATUS_META } = window.components;
+
   useEffect(() => {
-    function onDoc(e) { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }
-    document.addEventListener('mousedown', onDoc);
-    return () => document.removeEventListener('mousedown', onDoc);
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
   }, []);
-  const opts = window.STATUS_LIST;
-  const { STATUS_STYLE } = window.components;
-  const cur = STATUS_STYLE[value] || STATUS_STYLE['Reported'];
-  return h('div', { ref, className: 'relative' },
+
+  const cur = STATUS_META[value] || STATUS_META['Reported'];
+
+  return h('div', { ref, style: { position: 'relative', display: 'inline-block' } },
     h('button', { type: 'button', onClick: () => setOpen((o) => !o),
-      className: `inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition focus-ring ${cur.wrap} ${compact ? '' : 'min-w-[120px] justify-between'}` },
-      h('span', { className: `h-1.5 w-1.5 rounded-full ${cur.dot}` }), value,
-      h('span', { className: 'ml-1 opacity-70' }, '▾')),
-    open && h('div', { className: 'absolute right-0 z-20 mt-1 w-44 overflow-hidden rounded-xl border border-navy-700 bg-navy-850 shadow-card' },
-      opts.map((s) => {
-        const st = STATUS_STYLE[s];
-        return h('button', { key: s, type: 'button', onClick: () => { setOpen(false); onChange(s); },
-          className: `flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition hover:bg-navy-800 ${s === value ? 'text-white' : 'text-slate-300'}` },
-          h('span', { className: `h-1.5 w-1.5 rounded-full ${st.dot}` }), s,
-          s === value && h(Icon.Check, { className: 'ml-auto w-3.5 h-3.5 text-mint' }));
+      style: { display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 7, fontSize: 12.5, fontWeight: 500, color: 'rgba(255,255,255,0.7)', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.15s' } },
+      h('span', { style: { width: 6, height: 6, borderRadius: '50%', background: cur.dot, flexShrink: 0 } }),
+      value,
+      h(Icon.ChevronDown, { style: { width: 12, height: 12, color: 'rgba(255,255,255,0.3)' } })),
+
+    open && h('div', { className: 'status-menu' },
+      ['Reported', 'In Progress', 'Resolved'].map((s) => {
+        const m = STATUS_META[s];
+        return h('button', { key: s, type: 'button',
+          className: `status-menu-item${s === value ? ' active' : ''}`,
+          onClick: () => { setOpen(false); onChange(s); } },
+          h('span', { style: { width: 6, height: 6, borderRadius: '50%', background: m.dot, flexShrink: 0 } }),
+          s,
+          s === value && h(Icon.Check, { style: { width: 12, height: 12, marginLeft: 'auto', color: '#3ddc97' } }));
       })));
 }
 
-/* --------------------------------------------------------------- IssueTable */
-
+/* ──────────────────────────── ADMIN TABLE ──────────────────────────── */
 function IssueTable({ issues, onStatus, user }) {
-  if (issues.length === 0) return h(EmptyState, { icon: Icon.Inbox, title: 'No issues match these filters', subtitle: 'Try clearing a filter or adjusting your search.' });
-  return h('div', { className: 'card overflow-hidden' },
-    // desktop table
-    h('div', { className: 'hidden overflow-x-auto md:block' },
-      h('table', { className: 'w-full text-left text-sm' },
+  if (!issues.length) return h(EmptyState, { icon: Icon.Inbox, title: 'No issues match', subtitle: 'Try clearing some filters.' });
+
+  return h('div', { className: 'card', style: { overflow: 'hidden' } },
+    // ── Desktop table ──
+    h('div', { style: { overflowX: 'auto', display: 'none' }, className: 'md-table' },
+      h('table', { className: 'data-table' },
         h('thead', null,
-          h('tr', { className: 'border-b border-navy-800 text-[11px] uppercase tracking-wider text-slate-500' },
-            ['Issue', 'Category', 'Location', 'Priority', 'Votes', 'Status', 'Reported', 'AI', 'Update'].map((c) =>
-              h('th', { key: c, className: 'px-4 py-3 font-medium' }, c)))),
+          h('tr', null,
+            h('th', { style: { minWidth: 220 } }, 'Issue'),
+            h('th', { style: { minWidth: 140 } }, 'Category'),
+            h('th', { style: { minWidth: 130 } }, 'Location'),
+            h('th', { style: { minWidth: 90 } },  'Priority'),
+            h('th', { style: { minWidth: 80 } },  'Votes'),
+            h('th', { style: { minWidth: 110 } }, 'Status'),
+            h('th', { style: { minWidth: 90 } },  'Reported'),
+            h('th', { style: { minWidth: 130 } }, 'Update'),
+            h('th', { style: { minWidth: 110 } }, 'AI'))),
         h('tbody', null,
-          issues.map((i) => {
-            const high = i.priority === 'High';
-            return h('tr', { key: i.id, className: `border-b border-navy-800/60 transition hover:bg-navy-850 ${high ? 'border-l-4 border-l-danger' : ''}` },
-              h('td', { className: 'max-w-[220px] px-4 py-3' },
-                h('div', { className: 'truncate font-medium text-slate-100' }, i.title),
-                h('div', { className: 'truncate text-xs text-slate-500' }, i.reportedBy),
-                i.photo && h('span', { className: 'text-[10px] text-sky-400 flex items-center gap-0.5 mt-0.5' }, h(Icon.Image, { className: 'w-2.5 h-2.5' }), 'photo')),
-              h('td', { className: 'px-4 py-3' },
-                h('span', { className: 'inline-flex items-center gap-1.5 text-xs text-slate-300' },
-                  h(CategoryIcon, { category: i.category, className: 'w-3.5 h-3.5' }), i.category)),
-              h('td', { className: 'max-w-[140px] px-4 py-3' },
-                h('span', { className: 'block truncate text-xs text-slate-400' }, i.location || '—')),
-              h('td', { className: 'px-4 py-3' }, h(PriorityBadge, { priority: i.priority })),
-              h('td', { className: 'px-4 py-3' },
-                h('span', { className: 'inline-flex items-center gap-1 text-xs text-slate-300' },
-                  h(Icon.ArrowUp, { className: 'w-3 h-3 text-mint' }), (i.votes || []).length)),
-              h('td', { className: 'px-4 py-3' }, h(StatusBadge, { status: i.status })),
-              h('td', { className: 'whitespace-nowrap px-4 py-3 text-xs text-slate-500' }, timeAgo(i.createdAt)),
-              h('td', { className: 'px-4 py-3' }, h(AISummaryPanel, { issueId: i.id })),
-              h('td', { className: 'px-4 py-3' }, h(StatusSelect, { value: i.status, onChange: (s) => onStatus(i.id, s) })));
-          })))),
-    // mobile cards
-    h('div', { className: 'divide-y divide-navy-800/60 md:hidden' },
-      issues.map((i) => h('div', { key: i.id, className: 'p-4' },
-        h(IssueCard, { issue: i, user, admin: true }),
-        h('div', { className: 'mt-2' }, h(StatusSelect, { value: i.status, onChange: (s) => onStatus(i.id, s), compact: true }))))));
+          issues.map((i) => h('tr', { key: i.id, className: i.priority === 'High' ? 'row-high' : '' },
+            // Issue
+            h('td', null,
+              h('p', { style: { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', marginBottom: 2, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, i.title),
+              h('p', { style: { fontSize: 11.5, color: 'rgba(255,255,255,0.3)' } }, i.reportedBy),
+              i.photo && h('a', { href: `/uploads/${i.photo}`, target: '_blank', style: { fontSize: 11, color: '#38bdf8', display: 'flex', alignItems: 'center', gap: 3, marginTop: 2, textDecoration: 'none' } },
+                h(Icon.Image, { style: { width: 10, height: 10 } }), 'photo')),
+            // Category
+            h('td', null,
+              h('span', { style: { display: 'flex', alignItems: 'center', gap: 7, fontSize: 12.5, color: 'rgba(255,255,255,0.6)' } },
+                h('div', { className: 'icon-box', style: { width: 24, height: 24, borderRadius: 6, background: 'rgba(255,255,255,0.05)' } },
+                  h(CatIcon, { category: i.category, style: { width: 12, height: 12 } })),
+                h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 100 } }, i.category))),
+            // Location
+            h('td', null,
+              h('span', { style: { fontSize: 12.5, color: 'rgba(255,255,255,0.4)', maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' } }, i.location || '—')),
+            // Priority
+            h('td', null, h(PriorityBadge, { priority: i.priority })),
+            // Votes
+            h('td', null,
+              h('span', { style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 13, fontWeight: 600, color: (i.votes || []).length > 0 ? '#3ddc97' : 'rgba(255,255,255,0.3)' } },
+                h(Icon.ArrowUp, { style: { width: 12, height: 12 } }), (i.votes || []).length)),
+            // Status
+            h('td', null, h(StatusBadge, { status: i.status })),
+            // Reported
+            h('td', null,
+              h('span', { style: { fontSize: 12, color: 'rgba(255,255,255,0.3)', whiteSpace: 'nowrap' } }, timeAgo(i.createdAt))),
+            // Update
+            h('td', null, h(StatusSelect, { value: i.status, onChange: (s) => onStatus(i.id, s) })),
+            // AI
+            h('td', null, h(AISummaryPanel, { issueId: i.id }))))))));
 }
 
-/* --------------------------------------------------------------- AdminDashboard */
+// Inject desktop table visibility via a style tag
+const _tableStyle = document.createElement('style');
+_tableStyle.textContent = '@media (min-width: 768px) { .md-table { display: block !important; } }';
+document.head.appendChild(_tableStyle);
 
+/* ──────────────────────────── MOBILE ISSUE ROWS ──────────────────────────── */
+function MobileIssueRow({ issue, onStatus, user }) {
+  const high = issue.priority === 'High';
+  return h('div', { style: { padding: '14px 16px', borderBottom: '1px solid rgba(255,255,255,0.05)' } },
+    h('div', { style: { display: 'flex', gap: 10 } },
+      h('div', { className: 'icon-box', style: { background: high ? 'rgba(240,106,106,0.1)' : 'rgba(255,255,255,0.04)', color: high ? '#f06a6a' : 'rgba(255,255,255,0.3)', alignSelf: 'flex-start', flexShrink: 0 } },
+        h(CatIcon, { category: issue.category, style: { width: 14, height: 14 } })),
+      h('div', { style: { flex: 1, minWidth: 0 } },
+        h('div', { style: { display: 'flex', alignItems: 'flex-start', gap: 6, marginBottom: 4 } },
+          h('p', { style: { flex: 1, fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.85)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, issue.title),
+          high && h(PriorityBadge, { priority: 'High' })),
+        h('p', { className: 'truncate-2', style: { fontSize: 12, color: 'rgba(255,255,255,0.35)', marginBottom: 8, lineHeight: 1.5 } }, issue.description),
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' } },
+          h(StatusBadge, { status: issue.status }),
+          h('span', { style: { fontSize: 11.5, color: 'rgba(255,255,255,0.3)' } }, timeAgo(issue.createdAt)),
+          h('span', { style: { display: 'flex', alignItems: 'center', gap: 3, fontSize: 11.5, color: (issue.votes || []).length > 0 ? '#3ddc97' : 'rgba(255,255,255,0.25)' } },
+            h(Icon.ArrowUp, { style: { width: 11, height: 11 } }), (issue.votes || []).length)),
+        h('div', { style: { marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' } },
+          h(StatusSelect, { value: issue.status, onChange: (s) => onStatus(issue.id, s) }),
+          h(AISummaryPanel, { issueId: issue.id })))));
+}
+
+/* ──────────────────────────── FILTER BAR ──────────────────────────── */
+function FilterBar({ filters, setFilters }) {
+  const set = (k, v) => setFilters((f) => ({ ...f, [k]: v }));
+
+  return h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 } },
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 5, color: 'rgba(255,255,255,0.3)', marginRight: 4 } },
+      h(Icon.Filter, { style: { width: 13, height: 13 } }),
+      h('span', { style: { fontSize: 12, fontWeight: 500 } }, 'Filter')),
+
+    h('select', { value: filters.category, onChange: (e) => set('category', e.target.value), className: 'filter-select' },
+      h('option', { value: '' }, 'All Categories'),
+      CATEGORIES.map((c) => h('option', { key: c, value: c }, c))),
+
+    h('select', { value: filters.status, onChange: (e) => set('status', e.target.value), className: 'filter-select' },
+      h('option', { value: '' }, 'All Statuses'),
+      ['Reported', 'In Progress', 'Resolved'].map((s) => h('option', { key: s, value: s }, s))),
+
+    h('select', { value: filters.priority, onChange: (e) => set('priority', e.target.value), className: 'filter-select' },
+      h('option', { value: '' }, 'All Priorities'),
+      ['High', 'Medium'].map((p) => h('option', { key: p, value: p }, p))),
+
+    // Search
+    h('div', { style: { position: 'relative', marginLeft: 'auto' } },
+      h(Icon.Search, { style: { position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, color: 'rgba(255,255,255,0.25)', pointerEvents: 'none' } }),
+      h('input', { value: filters.q, onChange: (e) => set('q', e.target.value),
+        placeholder: 'Search…', className: 'filter-select', style: { paddingLeft: 30, minWidth: 180 } })));
+}
+
+/* ──────────────────────────── ADMIN DASHBOARD ──────────────────────────── */
 function AdminDashboard({ user, onToast }) {
   const [stats, setStats] = useState(null);
   const [issues, setIssues] = useState(null);
@@ -452,50 +470,71 @@ function AdminDashboard({ user, onToast }) {
       if (filters.category && i.category !== filters.category) return false;
       if (filters.status && i.status !== filters.status) return false;
       if (filters.priority && i.priority !== filters.priority) return false;
-      if (q && !((`${i.title} ${i.description} ${i.location} ${i.reportedBy} ${i.category}`).toLowerCase().includes(q))) return false;
+      if (q && !(`${i.title} ${i.description} ${i.location} ${i.reportedBy} ${i.category}`).toLowerCase().includes(q)) return false;
       return true;
     });
   }, [issues, filters]);
 
   async function updateStatus(id, status) {
     const prev = issues;
-    setIssues((arr) => (arr || []).map((i) => (i.id === id ? { ...i, status } : i)));
+    setIssues((arr) => (arr || []).map((i) => i.id === id ? { ...i, status } : i));
     try {
       const { issue, resolution_message } = await Api.updateStatus(id, status);
-      if (resolution_message) onToast({ type: 'ai', message: `AI: ${resolution_message}` });
-      else onToast({ message: `Status → "${status}"` });
-      setIssues((arr) => (arr || []).map((i) => (i.id === issue.id ? issue : i)));
-    } catch (e) {
-      setIssues(prev);
-      onToast({ type: 'error', message: e.message });
-    }
+      if (resolution_message) onToast({ type: 'ai', message: resolution_message });
+      else onToast({ message: `Status updated to "${status}"` });
+      setIssues((arr) => (arr || []).map((i) => i.id === issue.id ? issue : i));
+    } catch (e) { setIssues(prev); onToast({ type: 'error', message: e.message }); }
   }
 
-  return h('div', { className: 'mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8' },
-    h('div', { className: 'mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between' },
+  return h('div', { style: { maxWidth: 1280, margin: '0 auto', padding: '28px 20px' } },
+    // Header
+    h('div', { style: { display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 } },
       h('div', null,
-        h('h1', { className: 'text-xl font-bold text-white sm:text-2xl' }, 'Issue Resolution Console'),
-        h('p', { className: 'mt-1 text-sm text-slate-400' }, `Welcome back, ${user.name}. High-priority + most-voted issues surface first.`)),
-      h('button', { onClick: load, disabled: refreshing,
-        className: 'inline-flex items-center gap-2 self-start rounded-xl border border-navy-700 bg-navy-800/60 px-3 py-2 text-sm text-slate-300 transition hover:bg-navy-700 focus-ring disabled:opacity-50' },
-        h(Icon.Clock, { className: `w-4 h-4 ${refreshing ? 'animate-spin' : ''}` }), 'Refresh')),
+        h('h1', { style: { fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: 'rgba(255,255,255,0.95)', marginBottom: 4 } }, 'Issue Console'),
+        h('p', { style: { fontSize: 13, color: 'rgba(255,255,255,0.35)' } }, `Welcome, ${user.name}. High priority + most-voted surface first.`)),
+      h('button', { onClick: load, disabled: refreshing, className: 'btn btn-ghost btn-sm' },
+        h(Icon.Clock, { style: { width: 13, height: 13, animation: refreshing ? 'spin 0.65s linear infinite' : 'none' } }), 'Refresh')),
 
-    h('div', { className: 'mb-5' }, h(StatGrid, { stats })),
-    h('div', { className: 'mb-4' }, h(FilterBar, { filters, setFilters, counts: stats })),
+    // Stats
+    h('div', { style: { marginBottom: 20 } }, h(StatGrid, { stats })),
 
+    // Filters
+    h('div', { style: { marginBottom: 16 } }, h(FilterBar, { filters, setFilters })),
+
+    // Count row
+    issues && h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 10, fontSize: 12, color: 'rgba(255,255,255,0.3)' } },
+      h('span', null, `Showing ${filtered.length} of ${issues.length} issues`),
+      h('span', { style: { display: 'flex', alignItems: 'center', gap: 5 } },
+        h('span', { style: { width: 8, height: 8, borderRadius: 2, background: '#f06a6a', display: 'inline-block' } }),
+        'High priority'),
+      h('span', { style: { display: 'flex', alignItems: 'center', gap: 5 } },
+        h(Icon.ArrowUp, { style: { width: 11, height: 11, color: '#3ddc97' } }),
+        'Sorted by votes')),
+
+    // Table / cards
     issues === null
-      ? h('div', { className: 'card p-10 text-center text-sm text-slate-500' }, h('span', { className: 'cp-spinner text-mint' }), ' Loading issues…')
+      ? h('div', { className: 'card', style: { padding: 60, display: 'flex', justifyContent: 'center', color: 'rgba(255,255,255,0.3)' } },
+          h('span', { className: 'cp-spinner', style: { width: 24, height: 24 } }))
       : h('div', null,
-          h('div', { className: 'mb-3 flex items-center justify-between text-xs text-slate-500' },
-            h('span', null, `Showing ${filtered.length} of ${issues.length} issues`),
-            h('span', { className: 'hidden items-center gap-1.5 sm:flex' },
-              h('span', { className: 'h-2 w-2 rounded-sm bg-danger' }), '= High priority  ',
-              h(Icon.ArrowUp, { className: 'w-3 h-3 text-mint ml-2' }), '= sorted by votes')),
-          h(IssueTable, { issues: filtered, onStatus: updateStatus, user })));
+          // Desktop table
+          h(IssueTable, { issues: filtered, onStatus: updateStatus, user }),
+          // Mobile cards (below md)
+          h('div', { className: 'card', style: { overflow: 'hidden' } },
+            filtered.length === 0
+              ? h(EmptyState, { icon: Icon.Inbox, title: 'No issues match', subtitle: 'Adjust filters.' })
+              : filtered.map((i) => h(MobileIssueRow, { key: i.id, issue: i, onStatus: updateStatus, user })))));
 }
 
-/* --------------------------------------------------------------- AnalyticsDashboard */
+// Hide mobile card view on desktop
+const _mobileStyle = document.createElement('style');
+_mobileStyle.textContent = `
+  .md-table { display: none; }
+  @media (min-width: 768px) { .md-table { display: block !important; } }
+  @media (min-width: 768px) { .mobile-cards { display: none !important; } }
+`;
+document.head.appendChild(_mobileStyle);
 
+/* ──────────────────────────── ANALYTICS ──────────────────────────── */
 function AnalyticsDashboard({ onToast }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -507,85 +546,87 @@ function AnalyticsDashboard({ onToast }) {
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return h('div', { className: 'mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8' },
-    h('div', { className: 'card p-10 text-center text-slate-500' }, h('span', { className: 'cp-spinner text-mint' })));
+  if (loading) return h('div', { style: { maxWidth: 1280, margin: '0 auto', padding: '28px 20px', display: 'flex', justifyContent: 'center', paddingTop: 80 } },
+    h('span', { className: 'cp-spinner', style: { width: 28, height: 28, color: '#3ddc97' } }));
 
-  if (!data || Object.keys(data).length === 0) return h('div', { className: 'mx-auto max-w-7xl px-4 py-6' },
-    h(EmptyState, { icon: Icon.BarChart, title: 'No data yet', subtitle: 'Issue analytics will appear here once reports are submitted.' }));
+  if (!data || !Object.keys(data).length)
+    return h('div', { style: { maxWidth: 1280, margin: '0 auto', padding: '28px 20px' } },
+      h(EmptyState, { icon: Icon.BarChart, title: 'No data yet', subtitle: 'Analytics appear once issues are submitted.' }));
 
   const maxTotal = Math.max(...Object.values(data).map((d) => d.total), 1);
-  const maxVotes = Math.max(...Object.values(data).map((d) => d.votes || 0), 1);
+  const totalVotes = Object.values(data).reduce((s, d) => s + (d.votes || 0), 0);
+  const totalIssues = Object.values(data).reduce((s, d) => s + d.total, 0);
+  const totalResolved = Object.values(data).reduce((s, d) => s + (d.Resolved || 0), 0);
+  const resolutionRate = totalIssues ? Math.round(totalResolved / totalIssues * 100) : 0;
 
-  return h('div', { className: 'mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8' },
-    h('div', { className: 'mb-6' },
-      h('h1', { className: 'text-xl font-bold text-white sm:text-2xl' }, 'Category Analytics'),
-      h('p', { className: 'mt-1 text-sm text-slate-400' }, 'Issue breakdown by category, status, and community votes.')),
+  const barColors = { Reported: '#f06a6a', 'In Progress': '#f5b544', Resolved: '#3ddc97' };
 
-    // summary cards
-    h('div', { className: 'mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4' },
-      h('div', { className: 'card p-4' },
-        h('div', { className: 'text-xs uppercase tracking-wider text-slate-500 mb-1' }, 'Categories'),
-        h('div', { className: 'text-2xl font-bold text-white' }, Object.keys(data).length)),
-      h('div', { className: 'card p-4' },
-        h('div', { className: 'text-xs uppercase tracking-wider text-slate-500 mb-1' }, 'Most Reported'),
-        h('div', { className: 'text-sm font-bold text-white truncate' }, Object.keys(data)[0] || '—')),
-      h('div', { className: 'card p-4' },
-        h('div', { className: 'text-xs uppercase tracking-wider text-slate-500 mb-1' }, 'Total Votes'),
-        h('div', { className: 'text-2xl font-bold text-mint' }, Object.values(data).reduce((s, d) => s + (d.votes || 0), 0))),
-      h('div', { className: 'card p-4' },
-        h('div', { className: 'text-xs uppercase tracking-wider text-slate-500 mb-1' }, 'Resolution Rate'),
-        h('div', { className: 'text-2xl font-bold text-mint' }, (() => {
-          const total = Object.values(data).reduce((s, d) => s + d.total, 0);
-          const resolved = Object.values(data).reduce((s, d) => s + (d.Resolved || 0), 0);
-          return total ? `${Math.round(resolved / total * 100)}%` : '0%';
-        })()))),
+  return h('div', { style: { maxWidth: 1280, margin: '0 auto', padding: '28px 20px' } },
+    h('div', { style: { marginBottom: 24 } },
+      h('h1', { style: { fontSize: 22, fontWeight: 700, letterSpacing: '-0.03em', color: 'rgba(255,255,255,0.95)', marginBottom: 4 } }, 'Analytics'),
+      h('p', { style: { fontSize: 13, color: 'rgba(255,255,255,0.35)' } }, 'Category breakdown — status distribution and upvote trends.')),
 
-    // bar chart
-    h('div', { className: 'card p-5 sm:p-6' },
-      h('h2', { className: 'mb-5 text-sm font-semibold text-white flex items-center gap-2' },
-        h(Icon.BarChart, { className: 'w-4 h-4 text-mint' }), 'Issues by Category'),
-      h('div', { className: 'space-y-5' },
+    // Summary cards
+    h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 24 } },
+      [
+        { label: 'Categories',   value: Object.keys(data).length,  color: 'rgba(255,255,255,0.8)', icon: Icon.BarChart    },
+        { label: 'Total Issues', value: totalIssues,                color: 'rgba(255,255,255,0.8)', icon: Icon.Inbox       },
+        { label: 'Total Votes',  value: totalVotes,                 color: '#3ddc97',               icon: Icon.ArrowUp     },
+        { label: 'Resolved',     value: `${resolutionRate}%`,       color: '#3ddc97',               icon: Icon.Check       },
+      ].map(({ label, value, color, icon: Ic }) =>
+        h('div', { key: label, className: 'card', style: { padding: '14px 16px' } },
+          h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 } },
+            h('span', { style: { fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.3)', letterSpacing: '0.06em', textTransform: 'uppercase' } }, label),
+            h(Ic, { style: { width: 14, height: 14, color: 'rgba(255,255,255,0.2)' } })),
+          h('span', { style: { fontSize: 26, fontWeight: 700, letterSpacing: '-0.04em', color } }, value)))),
+
+    // Chart
+    h('div', { className: 'card', style: { padding: 24 } },
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 20 } },
+        h(Icon.BarChart, { style: { width: 16, height: 16, color: '#3ddc97' } }),
+        h('h2', { style: { fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.8)' } }, 'Issues by Category'),
+        // Legend
+        h('div', { style: { marginLeft: 'auto', display: 'flex', gap: 14 } },
+          ['Reported', 'In Progress', 'Resolved'].map((s) =>
+            h('span', { key: s, style: { display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, color: 'rgba(255,255,255,0.35)' } },
+              h('span', { style: { width: 8, height: 8, borderRadius: 2, background: barColors[s], display: 'inline-block' } }), s)))),
+
+      h('div', { style: { display: 'flex', flexDirection: 'column', gap: 18 } },
         Object.entries(data).map(([cat, counts]) =>
           h('div', { key: cat },
-            h('div', { className: 'mb-1.5 flex items-center justify-between' },
-              h('div', { className: 'flex items-center gap-2 text-sm' },
-                h(CategoryIcon, { category: cat, className: 'w-4 h-4 text-slate-400' }),
-                h('span', { className: 'font-medium text-slate-200' }, cat)),
-              h('div', { className: 'flex items-center gap-3 text-xs text-slate-500' },
-                h('span', null, `${counts.total} issues`),
-                h('span', { className: 'flex items-center gap-1 text-mint' },
-                  h(Icon.ArrowUp, { className: 'w-3 h-3' }), counts.votes || 0, ' votes'))),
-            // stacked bar
-            h('div', { className: 'flex h-5 w-full overflow-hidden rounded-full bg-navy-800' },
-              ['Reported', 'In Progress', 'Resolved'].map((s, si) => {
-                const pct = ((counts[s] || 0) / maxTotal) * 100;
-                const colors = ['bg-danger', 'bg-amber', 'bg-mint'];
-                return pct > 0
-                  ? h('div', { key: s, title: `${s}: ${counts[s] || 0}`,
-                      style: { width: `${pct}%` },
-                      className: `${colors[si]} analytics-bar transition-all` })
-                  : null;
-              })),
-            h('div', { className: 'mt-1 flex gap-4 text-[11px] text-slate-500' },
-              ['Reported', 'In Progress', 'Resolved'].map((s) =>
-                h('span', { key: s }, `${s}: ${counts[s] || 0}`)))))),
+            h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 7 } },
+              h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+                h('div', { className: 'icon-box', style: { width: 26, height: 26, borderRadius: 7, background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.35)' } },
+                  h(CatIcon, { category: cat, style: { width: 13, height: 13 } })),
+                h('span', { style: { fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.75)' } }, cat)),
+              h('div', { style: { display: 'flex', gap: 14, fontSize: 12, color: 'rgba(255,255,255,0.3)' } },
+                h('span', null, counts.total, ' issues'),
+                h('span', { style: { display: 'flex', alignItems: 'center', gap: 4, color: counts.votes ? '#3ddc97' : 'rgba(255,255,255,0.2)' } },
+                  h(Icon.ArrowUp, { style: { width: 11, height: 11 } }), counts.votes || 0))),
 
-      // legend
-      h('div', { className: 'mt-6 flex gap-4 text-xs text-slate-500 border-t border-navy-800 pt-4' },
-        [['bg-danger', 'Reported'], ['bg-amber', 'In Progress'], ['bg-mint', 'Resolved']].map(([c, l]) =>
-          h('span', { key: l, className: 'flex items-center gap-1.5' },
-            h('span', { className: `h-2.5 w-2.5 rounded-sm ${c}` }), l)))));
+            // Stacked bar
+            h('div', { style: { height: 10, borderRadius: 9999, background: 'rgba(255,255,255,0.06)', overflow: 'hidden', display: 'flex' } },
+              ['Reported', 'In Progress', 'Resolved'].map((s) => {
+                const w = ((counts[s] || 0) / maxTotal) * 100;
+                return w > 0 ? h('div', { key: s, className: 'analytics-bar', title: `${s}: ${counts[s] || 0}`,
+                  style: { width: `${w}%`, background: barColors[s] } }) : null;
+              })),
+
+            h('div', { style: { display: 'flex', gap: 14, marginTop: 5, fontSize: 11.5, color: 'rgba(255,255,255,0.28)' } },
+              ['Reported', 'In Progress', 'Resolved'].map((s) =>
+                h('span', { key: s }, `${s}: ${counts[s] || 0}`))))))));
 }
 
-/* --------------------------------------------------------------- AdminAssistant */
-
+/* ──────────────────────────── AI ASSISTANT ──────────────────────────── */
 function AdminAssistant({ onToast }) {
-  const [messages, setMessages] = useState([
-    { role: 'assistant', text: 'Hi! I\'m your AI Campus Assistant 🤖\n\nAsk me anything about the issue database:\n• "Which category has the most unresolved issues?"\n• "Show me all Wi-Fi issues"\n• "What are the highest voted issues?"\n• "How many issues were reported this week?"' },
-  ]);
+  const [messages, setMessages] = useState([{
+    role: 'assistant',
+    text: "Hi! I'm your AI Campus Assistant 🤖\n\nAsk me anything about the issue database:\n• \"Which category has the most unresolved issues?\"\n• \"What are the highest voted issues?\"\n• \"How many issues are In Progress?\"\n• \"Show a summary of all Safety issues\"",
+  }]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef(null);
+
   const suggestions = [
     'Which category has the most issues?',
     'What are the top voted issues?',
@@ -594,7 +635,7 @@ function AdminAssistant({ onToast }) {
   ];
 
   useEffect(() => {
-    if (bottomRef.current) bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   async function send(q) {
@@ -611,51 +652,55 @@ function AdminAssistant({ onToast }) {
     } finally { setLoading(false); }
   }
 
-  return h('div', { className: 'mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8' },
-    h('div', { className: 'mb-6 flex items-center gap-3' },
-      h('span', { className: 'flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/20 text-violet-300' },
-        h(Icon.Robot, { className: 'w-5 h-5' })),
+  return h('div', { style: { maxWidth: 860, margin: '0 auto', padding: '28px 20px' } },
+    // Header
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, marginBottom: 24 } },
+      h('div', { style: { width: 40, height: 40, borderRadius: 11, background: 'rgba(139,124,248,0.12)', border: '1px solid rgba(139,124,248,0.22)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a99ef9' } },
+        h(Icon.Robot, { style: { width: 20, height: 20 } })),
       h('div', null,
-        h('h1', { className: 'text-xl font-bold text-white' }, 'AI Campus Assistant'),
-        h('p', { className: 'text-sm text-slate-400' }, 'Ask anything about the campus issue database in plain English.'))),
+        h('h1', { style: { fontSize: 20, fontWeight: 700, letterSpacing: '-0.03em', color: 'rgba(255,255,255,0.9)' } }, 'AI Assistant'),
+        h('p', { style: { fontSize: 12.5, color: 'rgba(255,255,255,0.35)', marginTop: 2 } }, 'Natural language queries over the live issue database — powered by Groq / Llama 3.3 70B'))),
 
-    // chat window
-    h('div', { className: 'card mb-4 flex h-[420px] flex-col overflow-hidden' },
-      h('div', { className: 'flex-1 overflow-y-auto p-4 space-y-4' },
-        messages.map((m, i) => h('div', { key: i,
-          className: `flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}` },
-          h('div', { className: `max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap
-            ${m.role === 'user'
-              ? 'bg-mint text-navy-950 font-medium rounded-br-sm'
-              : 'bg-navy-800 text-slate-200 rounded-bl-sm border border-navy-700'}` },
-            m.role === 'assistant' && h('div', { className: 'flex items-center gap-1.5 mb-1.5 text-xs text-violet-400 font-semibold' },
-              h(Icon.Robot, { className: 'w-3 h-3' }), 'AI Assistant'),
-            m.text))),
-        loading && h('div', { className: 'flex justify-start' },
-          h('div', { className: 'rounded-2xl rounded-bl-sm border border-navy-700 bg-navy-800 px-4 py-3' },
-            h('span', { className: 'flex items-center gap-2 text-xs text-violet-400' },
-              h('span', { className: 'cp-spinner' }), 'Thinking…'))),
+    // Chat window
+    h('div', { className: 'card', style: { height: 440, display: 'flex', flexDirection: 'column', marginBottom: 12, overflow: 'hidden' } },
+      h('div', { style: { flex: 1, overflowY: 'auto', padding: 20, display: 'flex', flexDirection: 'column', gap: 16 } },
+        messages.map((m, i) =>
+          h('div', { key: i, style: { display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' } },
+            h('div', null,
+              m.role === 'assistant' && h('div', { style: { display: 'flex', alignItems: 'center', gap: 5, marginBottom: 5 } },
+                h('div', { style: { width: 20, height: 20, borderRadius: 6, background: 'rgba(139,124,248,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a99ef9' } },
+                  h(Icon.Robot, { style: { width: 11, height: 11 } })),
+                h('span', { style: { fontSize: 11, fontWeight: 600, color: 'rgba(139,124,248,0.7)', letterSpacing: '0.05em', textTransform: 'uppercase' } }, 'AI')),
+              h('div', { className: m.role === 'user' ? 'bubble-user' : 'bubble-ai' }, m.text)))),
+
+        loading && h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+          h('div', { style: { width: 20, height: 20, borderRadius: 6, background: 'rgba(139,124,248,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a99ef9' } },
+            h(Icon.Robot, { style: { width: 11, height: 11 } })),
+          h('div', { className: 'bubble-ai', style: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' } },
+            h('span', { className: 'cp-spinner', style: { width: 13, height: 13 } }),
+            h('span', { style: { fontSize: 13, color: 'rgba(255,255,255,0.4)' } }, 'Thinking…'))),
+
         h('div', { ref: bottomRef }))),
 
-    // suggestions
-    h('div', { className: 'mb-3 flex flex-wrap gap-2' },
-      suggestions.map((s) => h('button', { key: s, onClick: () => send(s),
-        className: 'rounded-full border border-navy-700 bg-navy-800/60 px-3 py-1.5 text-xs text-slate-300 transition hover:border-violet-500/40 hover:text-violet-300 hover:bg-violet-500/10' },
-        s))),
+    // Suggestions
+    h('div', { style: { display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 } },
+      suggestions.map((s) =>
+        h('button', { key: s, onClick: () => send(s),
+          style: { fontSize: 12, padding: '5px 12px', borderRadius: 9999, border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'rgba(255,255,255,0.45)', cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap' },
+          onMouseEnter: (e) => { e.currentTarget.style.borderColor = 'rgba(139,124,248,0.35)'; e.currentTarget.style.color = '#a99ef9'; e.currentTarget.style.background = 'rgba(139,124,248,0.08)'; },
+          onMouseLeave: (e) => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)'; e.currentTarget.style.color = 'rgba(255,255,255,0.45)'; e.currentTarget.style.background = 'rgba(255,255,255,0.04)'; },
+        }, s))),
 
-    // input
-    h('div', { className: 'flex gap-2' },
-      h('div', { className: 'relative flex-1' },
-        h(TextInput, { value: input, onChange: (e) => setInput(e.target.value),
+    // Input
+    h('div', { style: { display: 'flex', gap: 8 } },
+      h('div', { style: { flex: 1, position: 'relative' } },
+        h('input', { value: input, onChange: (e) => setInput(e.target.value),
           onKeyDown: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } },
-          placeholder: 'Ask about issues, trends, priorities…', className: 'pr-4' })),
-      h(Button, { onClick: () => send(), disabled: !input.trim() || loading, loading, size: 'md', variant: 'ai' },
-        h(Icon.Send, { className: 'w-4 h-4' }))));
+          placeholder: 'Ask about issues, trends, priorities…',
+          className: 'input-base', style: { paddingRight: 14 } })),
+      h('button', { onClick: () => send(), disabled: !input.trim() || loading, className: 'btn btn-ai btn-md' },
+        loading ? h('span', { className: 'cp-spinner', style: { width: 14, height: 14 } }) : h(Icon.Send, { style: { width: 15, height: 15 } }))));
 }
 
-// Expose
 window.STATUS_LIST = ['Reported', 'In Progress', 'Resolved'];
-window.dash = {
-  ReportForm, StudentDashboard, StatGrid, IssueTable,
-  AdminDashboard, AnalyticsDashboard, AdminAssistant,
-};
+window.dash = { ReportForm, StudentDashboard, StatGrid, IssueTable, AdminDashboard, AnalyticsDashboard, AdminAssistant };
