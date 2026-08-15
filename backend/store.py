@@ -1,4 +1,4 @@
-"""JSON file-backed store for CampusPulse.
+"""JSON file-backed store for CampusPulse — PS-4 FixIt edition.
 
 A tiny, dependency-free persistence layer. The whole database is a single
 JSON document (``data/db.json``) loaded into memory and flushed on every
@@ -20,32 +20,26 @@ _LOCK = threading.Lock()
 
 # --- schema constants -------------------------------------------------------
 
-# Allowed tracks + categories. Used by the API for validation and mirrored in
-# the React frontend so the two never drift.
 CAMPUS_CATEGORIES = [
-    "Electrical",
+    "Electrical / Fan",
+    "Projector / AV",
+    "Wi-Fi / Network",
     "Plumbing",
     "Furniture",
-    "IT/Wi-Fi",
-    "Safety/Security",
     "Cleanliness",
+    "Safety / Security",
     "Other",
 ]
-EXAM_CATEGORIES = [
-    "Hall Ticket Error",
-    "Seating Allocation Issue",
-    "Timetable Clash",
-    "Result Discrepancy",
-    "Invigilation Complaint",
-    "Other",
-]
-STATUSES = ["Reported", "In Progress", "Resolved"]
 
-# Anything on the Exam track, or a Safety/Security campus issue, is High.
-def compute_priority(track: str, category: str) -> str:
-    if track == "Exam":
-        return "High"
-    if track == "Campus" and category == "Safety/Security":
+STATUSES = ["Reported", "In Progress", "Resolved"]
+PRIORITIES = ["High", "Medium", "Low"]
+
+# High priority triggers
+HIGH_PRIORITY_CATEGORIES = {"Safety / Security", "Electrical / Fan"}
+
+
+def compute_priority(category: str) -> str:
+    if category in HIGH_PRIORITY_CATEGORIES:
         return "High"
     return "Medium"
 
@@ -90,10 +84,15 @@ def check_credentials(username: str, password: str) -> dict[str, Any] | None:
 # --- issue helpers ----------------------------------------------------------
 
 def list_issues() -> list[dict[str, Any]]:
-    # Highest priority first, then newest first.
+    """Sort: High priority first, then by vote count desc, then newest first."""
+    priority_order = {"High": 0, "Medium": 1, "Low": 2}
     return sorted(
         _read()["issues"],
-        key=lambda i: (i["priority"] != "High", -_ts(i["createdAt"]),),
+        key=lambda i: (
+            priority_order.get(i.get("priority", "Medium"), 1),
+            -len(i.get("votes", [])),
+            -_ts(i["createdAt"]),
+        ),
     )
 
 
@@ -109,20 +108,25 @@ def list_issues_by_user(user_id: str) -> list[dict[str, Any]]:
 
 
 def create_issue(payload: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
-    track = payload["track"]
     category = payload["category"]
     now = datetime.now(timezone.utc).isoformat()
+
+    # AI-suggested priority overrides default if provided
+    priority = payload.get("ai_priority") or compute_priority(category)
+
     issue = {
         "id": uuid.uuid4().hex[:12],
         "userId": user["id"],
         "reportedBy": user["name"],
         "title": payload["title"].strip(),
         "description": payload["description"].strip(),
-        "track": track,
         "category": category,
         "location": payload.get("location", "").strip(),
-        "priority": compute_priority(track, category),
+        "photo": payload.get("photo"),          # filename or None
+        "priority": priority,
+        "ai_priority_reason": payload.get("ai_priority_reason", ""),
         "status": "Reported",
+        "votes": [],
         "createdAt": now,
         "updatedAt": now,
     }
@@ -147,12 +151,76 @@ def update_status(issue_id: str, status: str) -> dict[str, Any] | None:
     return None
 
 
+def toggle_vote(issue_id: str, user_id: str) -> dict[str, Any] | str:
+    """Toggle upvote. Returns updated issue or error string."""
+    with _LOCK:
+        data = _read()
+        for issue in data["issues"]:
+            if issue["id"] == issue_id:
+                if issue.get("userId") == user_id:
+                    return "own"   # can't vote own issue
+                votes = issue.setdefault("votes", [])
+                if user_id in votes:
+                    votes.remove(user_id)
+                else:
+                    votes.append(user_id)
+                issue["updatedAt"] = datetime.now(timezone.utc).isoformat()
+                _write(data)
+                return issue
+    return "notfound"
+
+
+def find_similar_keyword(category: str, title: str, description: str, limit: int = 3) -> list[dict[str, Any]]:
+    """Fast keyword-based duplicate detection (fallback when AI is unavailable)."""
+    STOPWORDS = {
+        "the", "a", "an", "is", "in", "at", "of", "and", "or", "to",
+        "i", "my", "not", "it", "this", "that", "for", "on", "was",
+        "are", "be", "but", "with", "have", "has", "been", "its",
+    }
+    words = set((title + " " + description).lower().split()) - STOPWORDS
+    if len(words) < 2:
+        return []
+    results = []
+    for issue in _read()["issues"]:
+        if issue.get("status") == "Resolved":
+            continue
+        if issue.get("category") != category:
+            continue
+        candidate_words = set(
+            (issue.get("title", "") + " " + issue.get("description", "")).lower().split()
+        )
+        overlap = words & candidate_words
+        if len(overlap) >= 2:
+            results.append((len(overlap), issue))
+    results.sort(key=lambda x: -x[0])
+    return [r[1] for r in results[:limit]]
+
+
 def stats() -> dict[str, int]:
     issues = _read()["issues"]
-    counts = {"total": len(issues), "Reported": 0, "In Progress": 0, "Resolved": 0}
+    counts: dict[str, Any] = {
+        "total": len(issues),
+        "Reported": 0,
+        "In Progress": 0,
+        "Resolved": 0,
+    }
     for i in issues:
         counts[i["status"]] = counts.get(i["status"], 0) + 1
     return counts
+
+
+def analytics() -> dict[str, Any]:
+    """Per-category breakdown by status, sorted by total descending."""
+    issues = _read()["issues"]
+    cats: dict[str, Any] = {}
+    for i in issues:
+        cat = i.get("category", "Other")
+        if cat not in cats:
+            cats[cat] = {"Reported": 0, "In Progress": 0, "Resolved": 0, "total": 0, "votes": 0}
+        cats[cat][i["status"]] = cats[cat].get(i["status"], 0) + 1
+        cats[cat]["total"] += 1
+        cats[cat]["votes"] += len(i.get("votes", []))
+    return dict(sorted(cats.items(), key=lambda x: -x[1]["total"]))
 
 
 # --- seed -------------------------------------------------------------------
