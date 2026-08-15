@@ -134,40 +134,77 @@ function DuplicateWarningModal({ similar, onContinue, onCancel }) {
         h('button', { onClick: onContinue, className: 'btn btn-ghost btn-sm', style: { color: 'rgba(255,255,255,0.5)' } }, 'Submit anyway'))));
 }
 
-/* ── AI Summary Panel (admin) ── */
-function AISummaryPanel({ issueId }) {
+/* ── AI Summary Modal — renders as fixed overlay, never inside a table cell ── */
+function AISummaryPanel({ issueId, issueTitle }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
 
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open]);
+
   async function load() {
-    if (data) { setOpen((o) => !o); return; }
+    setOpen(true);
+    if (data) return;
     setLoading(true);
     try {
       const r = await Api.ai.summarize(issueId);
-      setData(r); setOpen(true);
-    } catch { setData({ summary: 'Could not load.', action: '', estimated_effort: '' }); setOpen(true); }
-    finally { setLoading(false); }
+      setData(r);
+    } catch {
+      setData({ summary: 'Could not load AI summary. Please try again.', action: '', estimated_effort: '' });
+    } finally { setLoading(false); }
   }
 
-  return h('div', null,
-    h('button', { onClick: load, className: 'btn btn-ai btn-sm', style: { gap: 5 } },
-      loading ? h('span', { className: 'cp-spinner', style: { width: 12, height: 12 } }) : h(Icon.Robot, { style: { width: 12, height: 12 } }),
-      loading ? 'Analyzing…' : 'AI Summary'),
+  // The modal is rendered via a portal so it NEVER affects table layout
+  const modal = open && ReactDOM.createPortal(
+    h('div', {
+      onClick: (e) => { if (e.target === e.currentTarget) setOpen(false); },
+      style: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 },
+      className: 'anim-fade-in',
+    },
+      h('div', { className: 'card anim-scale-in', style: { width: '100%', maxWidth: 440, padding: 0, overflow: 'hidden' } },
+        // Header
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, padding: '16px 18px', borderBottom: '1px solid rgba(255,255,255,0.07)' } },
+          h('div', { style: { width: 30, height: 30, borderRadius: 8, background: 'rgba(139,124,248,0.15)', border: '1px solid rgba(139,124,248,0.25)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#a99ef9', flexShrink: 0 } },
+            h(Icon.Robot, { style: { width: 15, height: 15 } })),
+          h('div', { style: { flex: 1, minWidth: 0 } },
+            h('p', { style: { fontSize: 13, fontWeight: 600, color: 'rgba(255,255,255,0.9)' } }, 'AI Issue Analysis'),
+            issueTitle && h('p', { style: { fontSize: 11.5, color: 'rgba(255,255,255,0.35)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 } }, issueTitle)),
+          h('button', {
+            onClick: () => setOpen(false),
+            style: { background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'rgba(255,255,255,0.5)', flexShrink: 0 },
+          }, h(Icon.X, { style: { width: 13, height: 13 } }))),
 
-    open && data && h('div', { className: 'anim-slide-up', style: { marginTop: 8, padding: 12, background: 'rgba(139,124,248,0.07)', border: '1px solid rgba(139,124,248,0.18)', borderRadius: 9 } },
-      h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 } },
-        h('span', { style: { fontSize: 11, fontWeight: 600, color: '#a99ef9', display: 'flex', alignItems: 'center', gap: 4, letterSpacing: '0.05em', textTransform: 'uppercase' } },
-          h(Icon.Robot, { style: { width: 11, height: 11 } }), 'AI Analysis'),
-        h('button', { onClick: () => setOpen(false), style: { background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.3)', padding: 0 } },
-          h(Icon.X, { style: { width: 13, height: 13 } }))),
-      h('p', { style: { fontSize: 12.5, color: 'rgba(255,255,255,0.65)', lineHeight: 1.6, marginBottom: data.action ? 8 : 0 } }, data.summary),
-      data.action && h('div', { style: { display: 'flex', gap: 7, padding: '7px 10px', background: 'rgba(0,0,0,0.2)', borderRadius: 7, alignItems: 'flex-start' } },
-        h(Icon.Wrench, { style: { width: 12, height: 12, color: '#f5b544', marginTop: 2, flexShrink: 0 } }),
-        h('p', { style: { fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.5 } },
-          h('b', { style: { color: '#f5b544' } }, 'Action: '), data.action)),
-      data.estimated_effort && h('p', { style: { marginTop: 6, fontSize: 11, color: 'rgba(255,255,255,0.3)', display: 'flex', alignItems: 'center', gap: 4 } },
-        h(Icon.Clock, { style: { width: 11, height: 11 } }), data.estimated_effort)));
+        // Body
+        h('div', { style: { padding: '16px 18px' } },
+          loading
+            ? h('div', { style: { display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', color: 'rgba(255,255,255,0.4)', fontSize: 13 } },
+                h('span', { className: 'cp-spinner', style: { width: 16, height: 16, color: '#a99ef9' } }), 'Analyzing issue with AI…')
+            : data && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 12 } },
+                // Summary
+                h('p', { style: { fontSize: 13.5, color: 'rgba(255,255,255,0.75)', lineHeight: 1.65 } }, data.summary),
+                // Action
+                data.action && h('div', { style: { display: 'flex', gap: 10, padding: '10px 12px', background: 'rgba(245,181,68,0.07)', border: '1px solid rgba(245,181,68,0.18)', borderRadius: 8, alignItems: 'flex-start' } },
+                  h(Icon.Wrench, { style: { width: 14, height: 14, color: '#f5b544', marginTop: 2, flexShrink: 0 } }),
+                  h('p', { style: { fontSize: 13, color: 'rgba(255,255,255,0.65)', lineHeight: 1.5 } },
+                    h('b', { style: { color: '#f5b544', display: 'block', marginBottom: 2, fontSize: 11, letterSpacing: '0.05em', textTransform: 'uppercase' } }, 'Recommended Action'),
+                    data.action)),
+                // Effort
+                data.estimated_effort && h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+                  h(Icon.Clock, { style: { width: 13, height: 13, color: 'rgba(255,255,255,0.3)' } }),
+                  h('span', { style: { fontSize: 12, color: 'rgba(255,255,255,0.35)' } }, data.estimated_effort)))))),
+    document.body
+  );
+
+  return h(React.Fragment, null,
+    h('button', { onClick: load, className: 'btn btn-ai btn-sm' },
+      h(Icon.Robot, { style: { width: 12, height: 12 } }), 'AI'),
+    modal);
 }
 
 /* ── TopBar ── */

@@ -388,7 +388,7 @@ function IssueTable({ issues, onStatus, user }) {
             // Update
             h('td', null, h(StatusSelect, { value: i.status, onChange: (s) => onStatus(i.id, s) })),
             // AI
-            h('td', null, h(AISummaryPanel, { issueId: i.id }))))))));
+            h('td', null, h(AISummaryPanel, { issueId: i.id, issueTitle: i.title }))))))));
 }
 
 // Inject desktop table visibility via a style tag
@@ -415,7 +415,7 @@ function MobileIssueRow({ issue, onStatus, user }) {
             h(Icon.ArrowUp, { style: { width: 11, height: 11 } }), (issue.votes || []).length)),
         h('div', { style: { marginTop: 10, display: 'flex', gap: 8, alignItems: 'center' } },
           h(StatusSelect, { value: issue.status, onChange: (s) => onStatus(issue.id, s) }),
-          h(AISummaryPanel, { issueId: issue.id })))));
+          h(AISummaryPanel, { issueId: issue.id, issueTitle: issue.title })))));
 }
 
 /* ──────────────────────────── FILTER BAR ──────────────────────────── */
