@@ -17,7 +17,7 @@ function userId() {
   return u ? u.id : '';
 }
 
-async function request(path, { method = 'GET', body, query, formData } = {}) {
+async function request(path, { method = 'GET', body, query, formData, timeout = 15000 } = {}) {
   const url = new URL(path, window.location.origin);
   if (query) {
     Object.entries(query).forEach(([k, v]) => {
@@ -36,18 +36,38 @@ async function request(path, { method = 'GET', body, query, formData } = {}) {
     fetchBody = JSON.stringify(body);
   }
 
-  const res = await fetch(url.toString(), { method, headers, body: fetchBody });
+  // Create abort controller for timeout
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  let data = null;
-  try { data = await res.json(); } catch { /* non-JSON */ }
-  if (!res.ok) {
-    const msg = (data && data.error) || `Request failed (${res.status})`;
-    const err = new Error(msg);
-    err.status = res.status;
-    err.data = data;
+  try {
+    const res = await fetch(url.toString(), { 
+      method, 
+      headers, 
+      body: fetchBody,
+      signal: controller.signal 
+    });
+
+    let data = null;
+    try { data = await res.json(); } catch { /* non-JSON */ }
+    
+    if (!res.ok) {
+      const msg = (data && data.error) || `Request failed (${res.status})`;
+      const err = new Error(msg);
+      err.status = res.status;
+      err.data = data;
+      throw err;
+    }
+    
+    return data;
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error(`Request timeout (${timeout}ms)`);
+    }
     throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-  return data;
 }
 
 const Api = {
@@ -95,19 +115,19 @@ const Api = {
   // --- AI endpoints ---
   ai: {
     suggestCategory(title, description) {
-      return request('/api/ai/suggest-category', { method: 'POST', body: { title, description } });
+      return request('/api/ai/suggest-category', { method: 'POST', body: { title, description }, timeout: 8000 });
     },
     prioritize(title, description, category) {
-      return request('/api/ai/prioritize', { method: 'POST', body: { title, description, category } });
+      return request('/api/ai/prioritize', { method: 'POST', body: { title, description, category }, timeout: 8000 });
     },
     summarize(issue_id) {
-      return request('/api/ai/summarize', { method: 'POST', body: { issue_id } });
+      return request('/api/ai/summarize', { method: 'POST', body: { issue_id }, timeout: 10000 });
     },
     assistant(question) {
-      return request('/api/ai/assistant', { method: 'POST', body: { question } });
+      return request('/api/ai/assistant', { method: 'POST', body: { question }, timeout: 12000 });
     },
     duplicates(title, description, category) {
-      return request('/api/ai/duplicates', { method: 'POST', body: { title, description, category } });
+      return request('/api/ai/duplicates', { method: 'POST', body: { title, description, category }, timeout: 8000 });
     },
   },
 };
