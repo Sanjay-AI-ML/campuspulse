@@ -22,6 +22,13 @@ JSON file store — no build step, no database server, runs locally in seconds.
   - **Exam** — Hall Ticket Error, Seating Allocation Issue, Timetable Clash, Result Discrepancy, Invigilation Complaint, Other
 - **Automatic priority** — Exam issues and Safety/Security campus issues are
   flagged **High**, sorted to the top, and visually marked (red border/badge).
+- **AI-powered features** (optional, degrades gracefully):
+  - 🤖 **Auto-categorize** — LLM suggests the best category from your description
+  - 🔍 **Duplicate detection** — semantic AI search finds similar open issues before submission
+  - 📊 **Priority assessment** — AI evaluates urgency and explains the rating
+  - 📝 **Issue summarization** — admin-facing AI summaries with recommended actions
+  - 💬 **Natural language assistant** — admins can ask questions about the issue database
+  - 🎯 **Resolution reports** — AI-generated completion summaries when issues are resolved
 - **Student dashboard** — report form with a track selector that swaps the
   category list, plus a live list of their own reports with status badges.
 - **Admin dashboard** — live stat cards (Total / Reported / In Progress /
@@ -31,6 +38,8 @@ JSON file store — no build step, no database server, runs locally in seconds.
   cards, soft shadows, color-coded status & priority badges, empty states,
   loading states, optimistic status updates, hover/transition micro-interactions.
 - **Fully responsive** — table on desktop collapses to cards on mobile.
+- **Accessibility** — WCAG AA compliant with aria-labels, keyboard navigation,
+  focus indicators, and screen reader support.
 
 ---
 
@@ -70,6 +79,35 @@ Then open **<http://localhost:5001>**.
 
 > To reset the demo data at any time: `./run.sh --reset` (or `run.bat reset`,
 > or just delete `backend/data/db.json` and re-run `seed.py`).
+
+---
+
+## 🤖 Optional: Enable AI features
+
+The app has optional AI integrations for auto-categorization, duplicate detection, 
+and priority assessment. It works *without* an API key (gracefully degrades), but to 
+enable AI:
+
+**Option 1: Groq (recommended — free tier, fastest)**
+```bash
+export GROQ_API_KEY="gsk_..."  # Get a free key at groq.com
+python backend/app.py
+```
+
+**Option 2: Google Gemini (free tier)**
+```bash
+export GEMINI_API_KEY="your_key..."
+python backend/app.py
+```
+
+**Option 3: OpenRouter (fallback)**
+```bash
+export OPENROUTER_API_KEY="sk-..."
+python backend/app.py
+```
+
+When the app starts, you'll see: `AI features: ENABLED — GROQ / llama-3.3-70b-versatile`  
+If you don't set a key, it shows: `AI features: DISABLED` (the app works normally, just without AI).
 
 ---
 
