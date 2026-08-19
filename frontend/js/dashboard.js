@@ -66,8 +66,25 @@ function ReportForm({ onCreated, user }) {
 
   function validate() {
     const e = {};
-    if (!form.title.trim()) e.title = 'Add a short title';
-    if (!form.description.trim()) e.description = 'Describe the issue';
+    const titleTrimmed = form.title.trim();
+    const descTrimmed = form.description.trim();
+    
+    if (!titleTrimmed) {
+      e.title = 'Add a short title';
+    } else if (titleTrimmed.length < 3) {
+      e.title = 'Title must be at least 3 characters';
+    }
+    
+    if (!descTrimmed) {
+      e.description = 'Describe the issue';
+    } else if (descTrimmed.length < 10) {
+      e.description = 'Description must be at least 10 characters';
+    }
+    
+    if (!form.category) {
+      e.category = 'Select a category';
+    }
+    
     setErrors(e);
     return !Object.keys(e).length;
   }
@@ -76,12 +93,24 @@ function ReportForm({ onCreated, user }) {
     setLoading(true);
     try {
       const result = await Api.createIssue(payload, photo || null);
+      if (!result || !result.issue) {
+        throw new Error('Server returned invalid response');
+      }
       setForm({ title: '', description: '', category: CATEGORIES[0], location: '' });
-      setPhotoFile(null); setPhotoPreview(null);
-      setAiPriority(null); setAiCategory(null); setSimilar([]);
+      setPhotoFile(null); 
+      setPhotoPreview(null);
+      setAiPriority(null); 
+      setAiCategory(null); 
+      setSimilar([]);
+      setErrors({});
       onCreated(result.issue);
-    } catch (err) { setErrors({ form: err.message }); }
-    finally { setLoading(false); }
+    } catch (err) { 
+      const msg = err.message || 'Failed to create issue. Please try again.';
+      setErrors({ form: msg });
+      console.error('Issue submission error:', err);
+    } finally { 
+      setLoading(false); 
+    }
   }
 
   async function submit(e) {
