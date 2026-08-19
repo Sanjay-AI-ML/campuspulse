@@ -108,28 +108,45 @@ def list_issues_by_user(user_id: str) -> list[dict[str, Any]]:
 
 
 def create_issue(payload: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
-    category = payload["category"]
+    """Create a new issue with comprehensive validation."""
+    category = payload.get("category", "Other")
+    
+    # Validate category
+    if category not in CAMPUS_CATEGORIES:
+        raise ValueError(f"Invalid category: {category}")
+    
     now = datetime.now(timezone.utc).isoformat()
 
-    # AI-suggested priority overrides default if provided
-    priority = payload.get("ai_priority") or compute_priority(category)
+    # AI-suggested priority overrides default if provided and valid
+    priority = payload.get("ai_priority")
+    if priority not in PRIORITIES:
+        priority = compute_priority(category)
 
     issue = {
         "id": uuid.uuid4().hex[:12],
-        "userId": user["id"],
-        "reportedBy": user["name"],
-        "title": payload["title"].strip(),
-        "description": payload["description"].strip(),
+        "userId": user.get("id", ""),
+        "reportedBy": user.get("name", "Unknown"),
+        "title": payload.get("title", "").strip(),
+        "description": payload.get("description", "").strip(),
         "category": category,
         "location": payload.get("location", "").strip(),
         "photo": payload.get("photo"),          # filename or None
         "priority": priority,
-        "ai_priority_reason": payload.get("ai_priority_reason", ""),
+        "ai_priority_reason": payload.get("ai_priority_reason", "").strip(),
         "status": "Reported",
         "votes": [],
         "createdAt": now,
         "updatedAt": now,
     }
+    
+    # Ensure all required fields are present and non-empty
+    if not issue["title"]:
+        raise ValueError("Issue title cannot be empty")
+    if not issue["description"]:
+        raise ValueError("Issue description cannot be empty")
+    if not issue["userId"]:
+        raise ValueError("Issue must have a valid user")
+    
     with _LOCK:
         data = _read()
         data["issues"].append(issue)
