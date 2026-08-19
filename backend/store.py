@@ -11,12 +11,14 @@ import json
 import os
 import threading
 import uuid
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 DB_PATH = Path(__file__).resolve().parent / "data" / "db.json"
 _LOCK = threading.Lock()
+logger = logging.getLogger(__name__)
 
 # --- schema constants -------------------------------------------------------
 
@@ -47,22 +49,83 @@ def compute_priority(category: str) -> str:
 # --- low-level JSON I/O -----------------------------------------------------
 
 def _ensure_db() -> None:
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    if not DB_PATH.exists():
-        _write({"users": [], "issues": []})
+    """Ensure DB directory and file exist."""
+    try:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        if not DB_PATH.exists():
+            _write({"users": [], "issues": []})
+            logger.info(f"Initialized new database at {DB_PATH}")
+    except OSError as e:
+        logger.error(f"Failed to ensure database: {e}")
+        raise
 
 
 def _read() -> dict[str, Any]:
+    """Read and parse DB with error recovery."""
     _ensure_db()
-    with DB_PATH.open("r", encoding="utf-8") as fh:
-        return json.load(fh)
+    try:
+        with DB_PATH.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+            # Validate structure
+            if not isinstance(data, dict):
+                raise ValueError("DB root must be a dictionary")
+            if "users" not in data or "issues" not in data:
+                logger.warning("DB missing required keys, reinitializing")
+                data = {"users": [], "issues": []}
+                _write(data)
+            return data
+    except json.JSONDecodeError as e:
+        logger.error(f"DB corruption detected: {e}, recovering from backup")
+        # Try to read backup if it exists
+        backup_path = DB_PATH.with_suffix(".json.bak")
+        if backup_path.exists():
+            try:
+                with backup_path.open("r", encoding="utf-8") as fh:
+                    return json.load(fh)
+            except Exception:
+                pass
+        # If all else fails, reinitialize
+        data = {"users": [], "issues": []}
+        _write(data)
+        return data
+    except Exception as e:
+        logger.error(f"Unexpected error reading DB: {e}")
+        raise
 
 
 def _write(data: dict[str, Any]) -> None:
-    tmp = DB_PATH.with_suffix(".json.tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        json.dump(data, fh, indent=2, ensure_ascii=False)
-    os.replace(tmp, DB_PATH)  # atomic on same filesystem
+    """Write data with atomic transaction and backup."""
+    try:
+        # Validate data structure before writing
+        if not isinstance(data, dict) or "users" not in data or "issues" not in data:
+            raise ValueError("Invalid DB structure")
+        
+        # Create backup before writing
+        if DB_PATH.exists():
+            backup_path = DB_PATH.with_suffix(".json.bak")
+            try:
+                with DB_PATH.open("r", encoding="utf-8") as src:
+                    with backup_path.open("w", encoding="utf-8") as dst:
+                        dst.write(src.read())
+            except Exception as e:
+                logger.warning(f"Failed to create backup: {e}")
+        
+        # Atomic write via temp file
+        tmp = DB_PATH.with_suffix(".json.tmp")
+        with tmp.open("w", encoding="utf-8") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+        os.replace(tmp, DB_PATH)  # atomic on same filesystem
+        logger.debug(f"Successfully wrote DB with {len(data.get('issues', []))} issues")
+    except Exception as e:
+        logger.error(f"Failed to write DB: {e}")
+        # Clean up temp file if it exists
+        tmp = DB_PATH.with_suffix(".json.tmp")
+        try:
+            if tmp.exists():
+                tmp.unlink()
+        except Exception:
+            pass
+        raise
 
 
 # --- user helpers -----------------------------------------------------------
@@ -109,7 +172,40 @@ def list_issues_by_user(user_id: str) -> list[dict[str, Any]]:
 
 def create_issue(payload: dict[str, Any], user: dict[str, Any]) -> dict[str, Any]:
     """Create a new issue with comprehensive validation."""
-    category = payload.get("category", "Other")
+    if not isinstance(payload, dict):
+        raise ValueError("Payload must be a dictionary")
+    
+    if not isinstance(user, dict) or not user.get("id"):
+        raise ValueError("Invalid user object")
+    
+    category = payload.get("category", "Other").strip()
+    title = payload.get("title", "").strip()
+    description = payload.get("description", "").strip()
+    location = payload.get("location", "").strip()
+    
+    # Validate title
+    if not title:
+        raise ValueError("Issue title cannot be empty")
+    if len(title) < 5:
+        raise ValueError("Issue title must be at least 5 characters")
+    if len(title) > 200:
+        raise ValueError("Issue title cannot exceed 200 characters")
+    
+    # Validate description
+    if not description:
+        raise ValueError("Issue description cannot be empty")
+    if len(description) < 10:
+        raise ValueError("Issue description must be at least 10 characters")
+    if len(description) > 5000:
+        raise ValueError("Issue description cannot exceed 5000 characters")
+    
+    # Validate location
+    if not location:
+        raise ValueError("Issue location cannot be empty")
+    if len(location) < 3:
+        raise ValueError("Issue location must be at least 3 characters")
+    if len(location) > 200:
+        raise ValueError("Issue location cannot exceed 200 characters")
     
     # Validate category
     if category not in CAMPUS_CATEGORIES:
@@ -126,31 +222,25 @@ def create_issue(payload: dict[str, Any], user: dict[str, Any]) -> dict[str, Any
         "id": uuid.uuid4().hex[:12],
         "userId": user.get("id", ""),
         "reportedBy": user.get("name", "Unknown"),
-        "title": payload.get("title", "").strip(),
-        "description": payload.get("description", "").strip(),
+        "title": title,
+        "description": description,
         "category": category,
-        "location": payload.get("location", "").strip(),
+        "location": location,
         "photo": payload.get("photo"),          # filename or None
         "priority": priority,
-        "ai_priority_reason": payload.get("ai_priority_reason", "").strip(),
+        "ai_priority_reason": payload.get("ai_priority_reason", "").strip()[:500],
         "status": "Reported",
         "votes": [],
         "createdAt": now,
         "updatedAt": now,
     }
     
-    # Ensure all required fields are present and non-empty
-    if not issue["title"]:
-        raise ValueError("Issue title cannot be empty")
-    if not issue["description"]:
-        raise ValueError("Issue description cannot be empty")
-    if not issue["userId"]:
-        raise ValueError("Issue must have a valid user")
-    
     with _LOCK:
         data = _read()
         data["issues"].append(issue)
         _write(data)
+        logger.info(f"Created issue {issue['id']} by user {user.get('id')} in category {category}")
+    
     return issue
 
 
