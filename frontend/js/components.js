@@ -27,15 +27,20 @@ function timeAgo(iso) {
 /* ── Badges ── */
 function StatusBadge({ status }) {
   const m = STATUS_META[status] || STATUS_META['Reported'];
-  return h('span', { className: `badge ${m.cls}` },
-    h('span', { style: { width: 6, height: 6, borderRadius: '50%', background: m.dot, flexShrink: 0 } }),
+  const statusText = {
+    'Reported': 'Issue reported',
+    'In Progress': 'Issue in progress',
+    'Resolved': 'Issue resolved',
+  }[status] || status;
+  return h('span', { className: `badge ${m.cls}`, title: statusText, 'aria-label': statusText },
+    h('span', { style: { width: 6, height: 6, borderRadius: '50%', background: m.dot, flexShrink: 0 }, 'aria-hidden': 'true' }),
     status);
 }
 
 function PriorityBadge({ priority }) {
   const m = PRIORITY_META[priority] || PRIORITY_META['Medium'];
-  return h('span', { className: `badge ${m.cls}` },
-    priority === 'High' && h(Icon.Alert, { style: { width: 10, height: 10 } }),
+  return h('span', { className: `badge ${m.cls}`, title: `Priority: ${priority}`, 'aria-label': `Priority: ${priority}` },
+    priority === 'High' && h(Icon.Alert, { style: { width: 10, height: 10 }, 'aria-hidden': 'true' }),
     priority);
 }
 
@@ -43,9 +48,17 @@ function PriorityBadge({ priority }) {
 function VoteBadge({ count, voted, onVote, disabled, loading }) {
   return h('button', {
     onClick: onVote,
+    onKeyDown: (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onVote();
+      }
+    },
     disabled: disabled || loading,
     title: disabled ? "Can't vote on your own issue" : voted ? 'Remove upvote' : 'Upvote this issue',
     className: `vote-btn${voted ? ' voted' : ''}`,
+    aria-pressed: voted,
+    aria-label: `${voted ? 'Remove' : 'Add'} upvote (${count} votes)`,
     style: disabled || loading ? { opacity: 0.35, cursor: 'not-allowed' } : {},
   },
     loading
@@ -64,14 +77,32 @@ function Field({ label, hint, error, children }) {
     error && h('p', { style: { fontSize: 11.5, color: '#f06a6a', marginTop: 2 } }, error));
 }
 
-function TextInput({ error, className, ...props }) {
-  return h('input', { ...props, className: `input-base${error ? ' border-danger' : ''} ${className || ''}` });
+function TextInput({ error, className, placeholder, label, ...props }) {
+  return h('input', { 
+    ...props, 
+    placeholder: placeholder || label,
+    aria-label: label || placeholder,
+    aria-invalid: error ? 'true' : 'false',
+    className: `input-base${error ? ' border-danger' : ''} ${className || ''}` 
+  });
 }
-function TextArea({ error, className, ...props }) {
-  return h('textarea', { ...props, className: `input-base textarea${error ? ' border-danger' : ''} ${className || ''}` });
+
+function TextArea({ error, className, placeholder, label, ...props }) {
+  return h('textarea', { 
+    ...props, 
+    placeholder: placeholder || label,
+    aria-label: label || placeholder,
+    aria-invalid: error ? 'true' : 'false',
+    className: `input-base textarea${error ? ' border-danger' : ''} ${className || ''}` 
+  });
 }
-function Select({ children, className, ...props }) {
-  return h('select', { ...props, className: `input-base select-input ${className || ''}` }, children);
+
+function Select({ children, className, label, ...props }) {
+  return h('select', { 
+    ...props, 
+    aria-label: label,
+    className: `input-base select-input ${className || ''}` 
+  }, children);
 }
 
 /* ── EmptyState ── */
