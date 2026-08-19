@@ -1,6 +1,14 @@
 """Seed CampusPulse's JSON store with demo users + realistic campus issue history.
 
 Idempotent: re-running drops and recreates data/db.json from scratch.
+
+Demo users:
+  - Student: aarav.sharma@college.edu (username: student, pass: student123)
+  - Admin:   priya.nair@college.edu (username: admin, pass: admin123)
+
+Demo issues cover all categories and include realistic statuses, votes, and timing
+to help test filters, analytics, and AI features. Issues are seeded 10 days back
+to show realistic historical data.
 """
 
 from __future__ import annotations
