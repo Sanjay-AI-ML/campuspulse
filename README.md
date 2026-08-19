@@ -1,5 +1,7 @@
 # CampusPulse
 
+![Python](https://img.shields.io/badge/python-3.11-blue?logo=python&logoColor=white) ![Flask](https://img.shields.io/badge/flask-2.3-blue?logo=flask&logoColor=white) ![React](https://img.shields.io/badge/react-18-blue?logo=react&logoColor=white) ![SQLite](https://img.shields.io/badge/sqlite-3-blue?logo=sqlite&logoColor=white) ![WCAG AA](https://img.shields.io/badge/wcag-aa-green)
+
 > Smart Campus & Exam Issue Reporting and Resolution Tracker — a hackathon
 > prototype for Indian college students. Report → track → resolve.
 
