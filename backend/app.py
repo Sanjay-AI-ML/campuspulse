@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import uuid
+import logging
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -34,6 +35,13 @@ ALLOWED_EXT = {"jpg", "jpeg", "png", "gif", "webp"}
 
 app = Flask(__name__, static_folder=None)
 CORS(app)
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 
 # --- helpers ---------------------------------------------------------------
@@ -66,23 +74,32 @@ def _allowed_file(filename: str) -> bool:
 
 
 def _apply_filters(issues):
-    track = request.args.get("track")
-    category = request.args.get("category")
-    status = request.args.get("status")
-    priority = request.args.get("priority")
+    """Apply query filters with validation."""
+    category = request.args.get("category", "").strip()
+    status = request.args.get("status", "").strip()
+    priority = request.args.get("priority", "").strip()
     q = (request.args.get("q") or "").lower().strip()
+    
     out = issues
-    if category:
+    
+    # Validate filters against known values
+    from store import CAMPUS_CATEGORIES, STATUSES, PRIORITIES
+    if category and category in CAMPUS_CATEGORIES:
         out = [i for i in out if i.get("category") == category]
-    if status:
+    if status and status in STATUSES:
         out = [i for i in out if i["status"] == status]
-    if priority:
+    if priority and priority in PRIORITIES:
         out = [i for i in out if i.get("priority") == priority]
-    if q:
-        out = [
-            i for i in out
-            if q in (i.get("title", "") + " " + i.get("description", "") + " " + i.get("location", "") + " " + i.get("reportedBy", "") + " " + i.get("category", "")).lower()
-        ]
+    if q and len(q) > 1:  # Require at least 2 chars for search
+        searchable = (
+            i.get("title", "") + " " +
+            i.get("description", "") + " " +
+            i.get("location", "") + " " +
+            i.get("reportedBy", "") + " " +
+            i.get("category", "")
+        ).lower()
+        out = [i for i in out if q in searchable]
+    
     return out
 
 
@@ -90,13 +107,25 @@ def _apply_filters(issues):
 
 @app.post("/api/login")
 def login():
-    body = request.get_json(silent=True) or {}
-    username = (body.get("username") or "").strip()
-    password = body.get("password") or ""
-    user = check_credentials(username, password)
-    if not user:
-        return _error("Invalid username or password", 401)
-    return jsonify({"user": _strip_user(user)})
+    try:
+        body = request.get_json(silent=True) or {}
+        username = (body.get("username") or "").strip()
+        password = body.get("password") or ""
+        
+        if not username or not password:
+            return _error("Username and password required", 400)
+        
+        if len(username) < 2 or len(password) < 1:
+            return _error("Invalid credentials format", 400)
+        
+        user = check_credentials(username, password)
+        if not user:
+            return _error("Invalid username or password", 401)
+        
+        return jsonify({"user": _strip_user(user)})
+    except Exception as exc:
+        logger.error(f"Login error: {exc}")
+        return _error("Login failed. Please try again.", 500)
 
 
 # --- issues ----------------------------------------------------------------
@@ -113,65 +142,78 @@ def get_issues():
 
 @app.post("/api/issues")
 def post_issue():
-    user = _current_user()
-    if not user:
-        return _error("Unauthorized", 401)
-
-    photo_filename = None
-
-    # Support both multipart (with photo) and JSON
-    if request.content_type and "multipart" in request.content_type:
-        form = request.form
-        title = (form.get("title") or "").strip()
-        description = (form.get("description") or "").strip()
-        category = form.get("category")
-        location = (form.get("location") or "").strip()
-        ai_priority = form.get("ai_priority") or None
-        ai_priority_reason = form.get("ai_priority_reason") or ""
-
-        file = request.files.get("photo")
-        if file and file.filename and _allowed_file(file.filename):
-            UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-            ext = file.filename.rsplit(".", 1)[1].lower()
-            photo_filename = f"{uuid.uuid4().hex}.{ext}"
-            file.save(UPLOAD_DIR / photo_filename)
-    else:
-        body = request.get_json(silent=True) or {}
-        title = (body.get("title") or "").strip()
-        description = (body.get("description") or "").strip()
-        category = body.get("category")
-        location = (body.get("location") or "").strip()
-        ai_priority = body.get("ai_priority") or None
-        ai_priority_reason = body.get("ai_priority_reason") or ""
-
-    if not title:
-        return _error("Title is required", 400)
-    if not description:
-        return _error("Description is required", 400)
-    if category not in CAMPUS_CATEGORIES:
-        return _error(f"Invalid category. Must be one of: {CAMPUS_CATEGORIES}", 400)
-
-    # Duplicate detection — try AI first, fallback to keyword
-    open_issues = [i for i in list_issues() if i["status"] != "Resolved"]
     try:
-        from ai import detect_duplicates
-        similar = detect_duplicates(title, description, category, open_issues)
-    except Exception:
-        similar = find_similar_keyword(category, title, description)
+        user = _current_user()
+        if not user:
+            return _error("Unauthorized", 401)
 
-    issue = create_issue(
-        {
-            "title": title,
-            "description": description,
-            "category": category,
-            "location": location,
-            "photo": photo_filename,
-            "ai_priority": ai_priority,
-            "ai_priority_reason": ai_priority_reason,
-        },
-        user,
-    )
-    return jsonify({"issue": issue, "similar": similar}), 201
+        photo_filename = None
+
+        # Support both multipart (with photo) and JSON
+        if request.content_type and "multipart" in request.content_type:
+            form = request.form
+            title = (form.get("title") or "").strip()
+            description = (form.get("description") or "").strip()
+            category = form.get("category")
+            location = (form.get("location") or "").strip()
+            ai_priority = form.get("ai_priority") or None
+            ai_priority_reason = form.get("ai_priority_reason") or ""
+
+            file = request.files.get("photo")
+            if file and file.filename and _allowed_file(file.filename):
+                UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+                ext = file.filename.rsplit(".", 1)[1].lower()
+                photo_filename = f"{uuid.uuid4().hex}.{ext}"
+                file.save(UPLOAD_DIR / photo_filename)
+                logger.info(f"Photo uploaded: {photo_filename}")
+        else:
+            body = request.get_json(silent=True) or {}
+            title = (body.get("title") or "").strip()
+            description = (body.get("description") or "").strip()
+            category = body.get("category")
+            location = (body.get("location") or "").strip()
+            ai_priority = body.get("ai_priority") or None
+            ai_priority_reason = body.get("ai_priority_reason") or ""
+
+        # Comprehensive validation
+        if not title or len(title) < 3:
+            return _error("Title required (min 3 chars)", 400)
+        if not description or len(description) < 10:
+            return _error("Description required (min 10 chars)", 400)
+        if category not in CAMPUS_CATEGORIES:
+            return _error(f"Invalid category. Must be one of: {', '.join(CAMPUS_CATEGORIES)}", 400)
+        if title.isspace() or description.isspace():
+            return _error("Title and description cannot be whitespace only", 400)
+
+        # Duplicate detection — try AI first, fallback to keyword
+        open_issues = [i for i in list_issues() if i["status"] != "Resolved"]
+        try:
+            from ai import detect_duplicates
+            similar = detect_duplicates(title, description, category, open_issues)
+            logger.debug(f"AI duplicate detection found {len(similar)} similar issues")
+        except Exception as exc:
+            logger.warning(f"AI duplicate detection failed, using fallback: {exc}")
+            similar = find_similar_keyword(category, title, description)
+
+        issue = create_issue(
+            {
+                "title": title,
+                "description": description,
+                "category": category,
+                "location": location,
+                "photo": photo_filename,
+                "ai_priority": ai_priority,
+                "ai_priority_reason": ai_priority_reason,
+            },
+            user,
+        )
+        
+        logger.info(f"Issue created: {issue['id']} by {user['name']}")
+        return jsonify({"issue": issue, "similar": similar}), 201
+    
+    except Exception as exc:
+        logger.error(f"Issue creation error: {exc}")
+        return _error("Failed to create issue. Please try again.", 500)
 
 
 @app.patch("/api/issues/<issue_id>/status")
